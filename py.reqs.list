@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+chromadb
+pydantic
+anthropic
+sentence-transformers
+transformers
