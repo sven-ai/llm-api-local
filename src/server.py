@@ -400,21 +400,24 @@ def ollama_chat(
     }
 
 
-
 if __name__ == "__main__":
-    import uvicorn
+    import uvicorn, sys
 
-    uvicorn.run(
-        #
-        # Run in production env
-        app, 
-        # #
-        # # Run for development with live code reload
-        # # https://github.com/encode/uvicorn/issues/687
-        # 'server:app',
-        # reload=True, workers=1,
+    if len(sys.argv) > 1 and sys.argv[1] == 'debug':
+        uvicorn.run(
+            # live code reload
+            # https://github.com/encode/uvicorn/issues/687
+            'server:app',
+            reload=True, workers=1,
 
-        host="0.0.0.0", port=12345,
-    )
+            host="0.0.0.0", port=12345,
+        )
+    else:
+        # production env
+        uvicorn.run(
+            app, 
+
+            host="0.0.0.0", port=12345,
+        )
 
 

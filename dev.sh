@@ -20,4 +20,4 @@ docker run --rm \
 	-w /sven -v $PWD:/sven \
 	-v $HOME/sven/llm-api-data:/data -v ~/.cache:/root/.cache \
 	--name=sven-llm-api \
-	python:3.13 /bin/sh -c 'pip install -r py.reqs.list && cd src && python server.py'
+	python:3.13 /bin/sh -c 'pip install -r py.reqs.list && cd src && python server.py debug'
