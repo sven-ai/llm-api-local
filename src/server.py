@@ -269,7 +269,7 @@ def completions(
             "Be nice and ❤️ Jessica."
         )
     q = messages[-1].content
-    print(f'q: {q}')
+    # print(f'q: {q}')
 
     if item.model == 'tmp':
         # `tmp` blackhole model
@@ -376,9 +376,10 @@ def ollama_chat(
     # print(f'cc: {cc}')
 
     content = None
-    if cc.choices is not None and len(cc.choices) > 0: 
-        choice = cc.choices[0]
-        content = choice.message.content
+    choices = cc['choices']
+    if choices is not None and len(choices) > 0: 
+        choice = choices[0]
+        content = choice['message']['content']
     else:
         print('ollama cant get choices.')
 
