@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+#
+# NOTE: - not used atm.
+# Use `./install.sh` from sven-for-developers repo
+#
 
 # docker login --username=svenai
 

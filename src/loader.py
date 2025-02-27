@@ -1,16 +1,29 @@
 
-import yaml
-import importlib
+import yaml, os, sys, importlib
+
+_cloud_src = '/sven/src'
+sys.path.append(
+    os.path.abspath(os.path.join(os.path.dirname(__file__), _cloud_src))
+)
+
 
 class LoadModule:
-    def __init__(self, config_path):
-        self.config_path = config_path
+    def __init__(self, file_name):
+        self.file_name = file_name
         self.config = self._load_config()
         self.module = self._load_module()
     
+
     def _load_config(self):
-        with open(self.config_path, 'r') as file:
-            return yaml.safe_load(file)
+        def load_yaml(path):
+            with open(path, 'r') as file:
+                print(f'Loading yaml config: {path}')
+                return yaml.safe_load(file)
+
+        parent = f'{_cloud_src}/{self.file_name}'
+        path = parent if os.path.exists(parent) else self.file_name
+        return load_yaml(path)
+            
     
     def _load_module(self):
         """Dynamically load the specified module."""
