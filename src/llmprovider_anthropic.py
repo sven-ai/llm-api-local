@@ -113,18 +113,23 @@ class Llmprovider(LLMProviderBase):
 			print(f'Thinking level: {thinking_level}')
 
 			def max_tokens(tl):
-				return {
-                    1: 6000,
-                    2: 20000,
-                    3: 32000,
-                    }[tl]
+				return 6000 if tl == 1 else 20000
+				# return {
+    #                 1: 6000,
+    #                 2: 20000,
+    #                 # 32K:
+    #                 # anthropic-sdk dies for long contexts without streaming or batching:
+    #                 # ValueError: Streaming is strongly recommended for operations that may take longer than 10 minutes. See https://github.com/anthropics/anthropic-sdk-python#long-requests for more details
+    #                 # 3: 32000,
+    #                 }[tl]
 
 			def budget_tokens(tl):
-				return {
-                    1: 5000,
-                    2: 16000,
-                    3: 30000,
-                    }[tl]
+				return 5000 if tl == 1 else 16000
+				# return {
+    #                 1: 5000,
+    #                 2: 16000,
+    #                 # 3: 30000,
+    #                 }[tl]
 
 			model = 'claude-3-7-sonnet-latest'
 			res = client.messages.create(
