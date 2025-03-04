@@ -1,6 +1,6 @@
 
-from fastapi import FastAPI, Depends, HTTPException 
-from fastapi.security import OAuth2PasswordBearer 
+from fastapi import FastAPI, Depends, HTTPException
+from fastapi.security import OAuth2PasswordBearer
 from fastapi.responses import HTMLResponse
 from utils import *
 
@@ -70,29 +70,29 @@ rerank = load_module('rerank.yml')
 
 def search(q: str, collection: str):
     neural_searcher = collections.get_or_insert(
-        user_modelname_to_embedding_modelname(collection), 
+        user_modelname_to_embedding_modelname(collection),
         lambda x: neural_search.new(x)
     )
 
     ts = time.time()
     res = neural_searcher.search(q)
     ts = time.time() - ts
-    print(f'Took to search using q text: {ts}s') 
+    print(f'Took to search using q text: {ts}s')
 
     filtered = filter_search_results(res)
     n = len(filtered['documents'])
     # print(f'SEARCH: {filtered}')
-    
+
     if n > 0:
         ts = time.time()
         ranked = rerank.rank(q, filtered)
         ts = time.time() - ts
-        print(f'Took to rerank {n} docs: {ts}s') 
+        print(f'Took to rerank {n} docs: {ts}s')
         # print(f'ranked res: {ranked}')
 
         return ranked
     else:
-        print(f'Search found 0 related docs. Reranking skipped.') 
+        print(f'Search found 0 related docs. Reranking skipped.')
         return filtered
 
 
@@ -116,7 +116,7 @@ async def embed_add_v1(
 
     if len(item.input) == 0 or len(item.model) == 0:
         raise HTTPException(
-            status_code=500, 
+            status_code=500,
             detail="Bad input"
         )
 
@@ -131,7 +131,7 @@ async def embed_add_v1(
         },
         'data': embed.text(item.input),
     }
-    
+
 
 
 known_models = set()
@@ -147,7 +147,7 @@ async def embed_add(
 
     if len(item.input) == 0 or len(item.model) == 0:
         raise HTTPException(
-            status_code=500, 
+            status_code=500,
             detail="Bad input"
         )
 
@@ -157,10 +157,10 @@ async def embed_add(
         description=item.metadata.get('description', f'{item.model} generic about'),
     )
     if item.model in known_models:
-        # 
+        #
         # TODO - do not update always
         # only when values did change
-        # 
+        #
         _db_models.update_metadata(model_item)
     else:
         known_models.add(item.model)
@@ -175,7 +175,7 @@ async def embed_add(
     print(f'Adding knowledge to: {model}')
 
     neural_searcher = collections.get_or_insert(
-        model, # item.model, 
+        model, # item.model,
         lambda x: neural_search.new(x)
     )
 
@@ -192,7 +192,7 @@ async def embed_add(
 def models_v1(
     token: str = Depends(oauth2_scheme),
     ):
-    raise HTTPException(status_code=301, detail="USE /v2 not /v1") 
+    raise HTTPException(status_code=301, detail="USE /v2 not /v1")
 
 
 
@@ -257,11 +257,12 @@ def completions(
     # print(f'fixed messages: {messages}')
 
     # remake with `fixed` messages - `fixed` means no message has empty content
-    item = ChatCompletionsItem(
-        model = item.model,
-        messages = messages,
-        stream = False, # always false since re-sending to LLM provider
-    )
+    item.messages = messages
+    # item = ChatCompletionsItem(
+    #     model = item.model,
+    #     messages = messages,
+    #     stream = False, # always false since re-sending to LLM provider
+    # )
 
     if len(messages) == 0:
         return llm.plaintext_content_response(
@@ -280,8 +281,8 @@ def completions(
 
 
     embeddings = search(
-        q = q, 
-        collection = item.model, 
+        q = q,
+        collection = item.model,
     )
 
     return llm.forward_to_llm(
@@ -314,7 +315,7 @@ async def dummy_api_html():
 
 
 
-# 
+#
 # OLLAMA endpoints support
 #
 
@@ -357,7 +358,7 @@ def ollama_models(
             }, data)
         )
     }
-    
+
 
 @app.post("/api/chat")
 def ollama_chat(
@@ -377,7 +378,7 @@ def ollama_chat(
 
     content = None
     choices = cc['choices']
-    if choices is not None and len(choices) > 0: 
+    if choices is not None and len(choices) > 0:
         choice = choices[0]
         content = choice['message']['content']
     else:
@@ -387,7 +388,7 @@ def ollama_chat(
         content = 'Ollama failed :('
     # else:
     #     print(f'parsed content: {content}')
-    
+
     return {
       "model": "anton",
       # "created_at": "2023-08-04T08:52:19.385406455-07:00",
@@ -415,9 +416,7 @@ if __name__ == "__main__":
     else:
         # production env
         uvicorn.run(
-            app, 
+            app,
 
             host="0.0.0.0", port=12345,
         )
-
-

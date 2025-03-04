@@ -4,7 +4,7 @@ from mistralai import Mistral
 
 class Llmprovider(LLMProviderBase):
 
-	def __init__(self): 
+	def __init__(self):
 		api_key = os.environ.get("MISTRAL_API_KEY")
 
         self.client = Mistral(api_key=api_key)
@@ -79,20 +79,20 @@ class Llmprovider(LLMProviderBase):
 		else:
 		    print(f'0 knowledge for the user query.')
 
-		return client.chat.complete(
+		res = client.chat.complete(
 		    # model = item.model,
 		    # model = "mistral-small-latest",
 		    model = remote_llm_model_for(item.model),
 
 		    # messages = item.messages,
-		    messages = 
+		    messages =
 		        map(lambda x: {
 		            "role": x.role,
 		            "content": x.content,
 		            }, item.messages)
 		)
 
+		return res, ''
+
 		# print(chat_response.choices[0].message.content)
 		# return chat_response
-
-

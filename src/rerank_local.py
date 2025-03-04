@@ -10,7 +10,7 @@ _model_path = "Alibaba-NLP/gte-reranker-modernbert-base"
 
 class Rerank:
 
-    def rank(self, q, contents, n = 5, min_relevance = 0.2):
+    def rank(self, q, contents, n = 10, min_relevance = 0.2):
         model = CrossEncoder(
             _model_path,
             automodel_args={"torch_dtype": "auto"},
@@ -20,8 +20,8 @@ class Rerank:
         print(f'DOCS: {contents['documents']}')
 
         res0 = model.rank(
-            q, contents['documents'], 
-            return_documents=False, 
+            q, contents['documents'],
+            return_documents=False,
             top_k=n
         )
         # print(res)
@@ -36,7 +36,7 @@ class Rerank:
         )
         res = sorted(
             res,
-            key=lambda x: x['score'], 
+            key=lambda x: x['score'],
             reverse=True # False will sort ascending
             # Rerank returns `relevant` scores, hence larger is better
         )
@@ -50,7 +50,7 @@ class Rerank:
             print(f'RERANK. Dropped {dropped} results due to low relevancy (< {min_relevance}).')
         # else:
             # print(f'RERANK. Sorted results: {res}')
-        
+
         documents = contents["documents"]
         ids = contents["ids"]
         metadatas = contents["metadatas"]
@@ -60,5 +60,3 @@ class Rerank:
             "ids": [ids[idx] for idx in indices],
             "metadatas": [metadatas[idx] for idx in indices],
         }
-
-

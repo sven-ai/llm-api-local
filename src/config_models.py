@@ -18,7 +18,7 @@ def user_model_name_is_valid(model_name: str) -> bool:
 #
 #
 def user_modelname_to_embedding_modelname(name: str) -> str:
-	return name.replace('/', '_')
+	return name.replace('/', '_').replace('*', '')
 
 
 # def remote_llm_model_for(name: str) -> str:
@@ -26,9 +26,9 @@ def user_modelname_to_embedding_modelname(name: str) -> str:
 # 		# cannot integrate codestral into instruct-like chat
 # 		# codestra does not expect `messages`
 # 		# expects `prefix` & `suffix`
-# 		# 
+# 		#
 # 		# return "codestral-latest"
-# 		# 
+# 		#
 # 		return "mistral-large-latest"
 # 	else:
 # 		return "mistral-small-latest"
@@ -53,6 +53,3 @@ def model_config(model: ModelItem) -> dict[str, str]:
 	      "description": model.description,
 	      "max_context_length": 120000
 		}
-
-
-

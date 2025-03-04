@@ -22,14 +22,14 @@ class _EmbeddingFunction(EmbeddingFunction):
 class _Search:
     def __init__(self, collection_name):
         print(f'New Search for collection: {collection_name}')
-        
+
         _client.heartbeat()
 
         emb_fn = _EmbeddingFunction()
         self.emb_fn = emb_fn
 
         collection = _client.get_or_create_collection(
-            name=collection_name, 
+            name=collection_name,
             embedding_function=emb_fn,
             metadata={
                 "hnsw:space": "cosine",
@@ -43,8 +43,8 @@ class _Search:
 
 
     def add(
-        self, 
-        text: str, id: str, 
+        self,
+        text: str, id: str,
         metadata: dict[str, str],
         ):
         embedding = self.emb_fn([text])
@@ -60,9 +60,9 @@ class _Search:
 
 
     def search(
-        self, 
+        self,
         text: str,
-        n: int = 30,
+        n: int = 50,
         ):
         return self.collection.query(
             query_texts=[text],

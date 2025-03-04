@@ -9,18 +9,18 @@ if not os.environ.get("JINA_API_KEY"):
 
 class Rerank:
 
-    def rank(self, q, contents, n = 5, min_relevance = 0.1):
+    def rank(self, q, contents, n = 10, min_relevance = 0.1):
 	    reranker = JinaRerank(
-	        model="jina-reranker-v2-base-multilingual", 
+	        model="jina-reranker-v2-base-multilingual",
 	        jina_api_key=os.environ.get("JINA_API_KEY"),
-	        top_n=n, 
+	        top_n=n,
 	    )
 
 	    res0 = reranker.rerank(
-	        query=q, 
-	        # documents=docs, 
+	        query=q,
+	        # documents=docs,
 	        documents=contents['documents'],
-	        top_n=n, 
+	        top_n=n,
 	        model="jina-reranker-v2-base-multilingual",
 	    )
 
@@ -34,7 +34,7 @@ class Rerank:
 	    )
 	    res = sorted(
 	        res,
-	        key=lambda x: x['relevance_score'], 
+	        key=lambda x: x['relevance_score'],
 	        reverse=True # False will sort ascending
 	        # Rerank returns `relevant` scores, hence bigger is better
 	    )
@@ -48,7 +48,7 @@ class Rerank:
 	        print(f'RERANK. Dropped {dropped} results due to low relevancy (< {min_relevance}).')
 	    # else:
 	        # print(f'RERANK. Sorted results: {res}')
-	    
+
 	    documents = contents["documents"]
 	    ids = contents["ids"]
 	    metadatas = contents["metadatas"]
@@ -58,4 +58,3 @@ class Rerank:
 	        "ids": [ids[idx] for idx in indices],
 	        "metadatas": [metadatas[idx] for idx in indices],
 	    }
-

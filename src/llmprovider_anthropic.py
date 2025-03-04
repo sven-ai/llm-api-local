@@ -38,13 +38,9 @@ def _document_text(x) -> dict:
 	}
 
 
-
-
-
-
 class Llmprovider(LLMProviderBase):
 
-	def __init__(self): 
+	def __init__(self):
 		self.client = anthropic.Anthropic()
 
 
@@ -65,15 +61,8 @@ class Llmprovider(LLMProviderBase):
 			system = first.content
 			item.messages = item.messages[1:]
 
-		is_dev = item.model.endswith('/dev')
-
-		temperature = 0.6 if is_dev else 0.9
-
-		# sonnet = 'claude-3-5-sonnet-latest'
-		sonnet = 'claude-3-7-sonnet-latest'
-		haiku = 'claude-3-5-haiku-latest'
-		model = sonnet if is_dev else haiku
-		# print(f'Forwarding to Authropic model: {model}')
+		is_dev = item.model.startswith('/dev')
+		is_thinking = item.model.startswith('*')
 
 		documents = embeddings['documents']
 		# print(f'documents: {documents}')
@@ -112,31 +101,83 @@ class Llmprovider(LLMProviderBase):
 		else:
 			print(f'0 knowledge for the user query.')
 
+		if is_thinking:
+			if item.model.startswith('***'):
+				thinking_level = 3
+			elif item.model.startswith('**'):
+				thinking_level = 2
+			elif item.model.startswith('*'):
+				thinking_level = 1
+			else:
+				thinking_level = 1
+			print(f'Thinking level: {thinking_level}')
 
-		res = client.messages.create(
-			model=model,
-			system=system,
-			# TODO: - try getting these from `item` openAI request
-			# These may be set there.
-			temperature=temperature,
-			max_tokens=1024,
-			messages=messages,
-			stream=False,
+			def max_tokens(tl):
+				return {
+                    1: 6000,
+                    2: 20000,
+                    3: 32000,
+                    }[tl]
 
-			# max_tokens=128000,
-			# betas=["output-128k-2025-02-19"], # https://docs.anthropic.com/en/docs/build-with-claude/extended-thinking#extended-output-capabilities-beta
-		)
-		print(f'Anthropic response. Usage: {res.usage}')
+			def budget_tokens(tl):
+				return {
+                    1: 5000,
+                    2: 16000,
+                    3: 30000,
+                    }[tl]
 
-		res = ''.join(
-			map(
-				lambda x: x.text, 
+			model = 'claude-3-7-sonnet-latest'
+			res = client.messages.create(
+     			model=model,
+     			system=system,
+     			messages=messages,
+     			stream=False,
+
+     			max_tokens=max_tokens(thinking_level),
+                thinking={
+                    "type": "enabled",
+                    "budget_tokens": budget_tokens(thinking_level),
+                },
+
+     			# betas=["output-128k-2025-02-19"], # https://docs.anthropic.com/en/docs/build-with-claude/extended-thinking#extended-output-capabilities-beta
+      		)
+		else:
+			temperature = 0.6 if is_dev else 0.9
+			sonnet = 'claude-3-7-sonnet-latest'
+			haiku = 'claude-3-5-haiku-latest'
+			model = sonnet if is_dev else haiku
+			# print(f'Forwarding to Authropic model: {model}')
+
+			res = client.messages.create(
+    			model=model,
+    			system=system,
+    			# TODO: - try getting these from `item` openAI request
+    			# These may be set there.
+    			temperature=temperature,
+    			max_tokens=1000,
+    			messages=messages,
+    			stream=False,
+
+    			# max_tokens=128000,
+    			# betas=["output-128k-2025-02-19"], # https://docs.anthropic.com/en/docs/build-with-claude/extended-thinking#extended-output-capabilities-beta
+			)
+		# print(f'Anthropic response: {res}')
+		print(f'Anthropic {model} usage: {res.usage}')
+
+		# https://docs.anthropic.com/en/docs/build-with-claude/extended-thinking#implementing-extended-thinking
+		def extract(type_key: str, val_key: str):
+			vals = filter(
+				lambda x: x.type == type_key,
 				res.content
 			)
-		)
-		return res
+			return ''.join(
+				map(
+					lambda x: getattr(x, val_key, ''),
+					vals
+				)
+			)
 
+		res_content = extract('text', 'text')
+		res_thinking = extract('thinking', 'thinking')
 
-
-
-
+		return res_content, res_thinking

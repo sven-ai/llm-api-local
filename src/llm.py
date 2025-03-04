@@ -24,20 +24,33 @@ class ChatCompletionsItem(BaseModel):
 
 
 class LLMProviderBase:
-	def __init__(self): 
+	def __init__(self):
 		print()
 
 
 class LLM:
-	def __init__(self): 
+	def __init__(self):
 		print()
 
 
 	def plaintext_content_response(
 		self,
-	    model: str, 
-	    content: str
-    ):
+	    model: str,
+	    content: str,
+		reasoning: str = '',
+	):
+		if len(reasoning) > 0:
+			m = {
+				"role": "assistant",
+			 	"content": content,
+				"reasoning": reasoning,
+		    }
+		else:
+			m = {
+				"role": "assistant",
+		        "content": content,
+		    }
+
 		res = {
 			'id': str(uuid.uuid4()),
 			'model': model,
@@ -50,15 +63,12 @@ class LLM:
 
 			'object': 'chat.completion',
 			"choices": [
-			    {
+				{
 			        "index": 0,
-			        "message": {
-			            "role": "assistant",
-			            "content": content
-			        },
-			        "finish_reason": "stop"
+			        "message": m,
+					"finish_reason": "stop"
 			    }
-			]
+			],
 		}
 
 		return res
@@ -82,16 +92,14 @@ class LLM:
 	            "Be nice and ❤️ Jessica."
 	        )
 
+		ts = time.time()
 		res = provider.req(
 			item, embeddings
 		)
+		ts = time.time() - ts
+		print(f'LLMProvider took: {ts}s')
 
 		return self.plaintext_content_response(
 			item.model,
-			res
+			res[0], res[1]
 		)
-
-
-	    
-
-
