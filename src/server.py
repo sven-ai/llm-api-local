@@ -198,14 +198,41 @@ def models_v1(
 
 @app.get("/v2/models")
 def models(
-    token: str = Depends(oauth2_scheme),
-    ):
-    if not access.bearer_is_valid(token):
-        raise HTTPException(status_code=403, detail="Access Denied: Invalid Bearer Token")
+	token: str = Depends(oauth2_scheme),
+):
+	if not access.bearer_is_valid(token):
+		raise HTTPException(status_code=403, detail="Access Denied: Invalid Bearer Token")
 
-    models = _db_models.list_all()
+	models = list(_db_models.list_all())
+	if len(models) > 0:
+		# For every model - insert 3 `reasoning`-supported models:
+		#
+		rms = []
+		for m in models:
+			rms.append(
+				ModelItem(
+				    id = f'*{m.id}',
+				    name = f'[reason-1] {m.name}',
+				    description = f'{m.description} and Think up to 5K tokens.',
+				)
+			)
+			rms.append(
+				ModelItem(
+				    id = f'**{m.id}',
+				    name = f'[reason-2] {m.name}',
+				    description = f'{m.description} and Think up to 15K tokens.',
+				)
+			)
+			rms.append(
+				ModelItem(
+				    id = f'***{m.id}',
+				    name = f'[reason-3] {m.name}',
+				    description = f'{m.description} and Think up to 30K tokens.',
+				)
+			)
+	models.extend(rms)
 
-    return {
+	return {
         "object": "list",
         "data": list(map(
             lambda x: model_config(x),

@@ -18,8 +18,8 @@ _connection = sqlite3.connect(
 _connection.execute("PRAGMA journal_mode=WAL")
 
 
-class DbModels: 
-	def __init__(self): 
+class DbModels:
+	def __init__(self):
 		with _connection:
 		    cursor = _connection.cursor()
 
@@ -49,50 +49,6 @@ class DbModels:
 			)
 		)
 
-		# Reasoning / Thinking models
-		self.add_new_if_needed(
-			ModelItem(
-				id = '*local',
-			    name = '[reason-1] Local + Thinking level 1',
-			    description = 'Default local + Level 1 reasoning (up to 5K thinking tokens)',
-			)
-		)
-		self.add_new_if_needed(
-			ModelItem(
-				id = '**local',
-			    name = '[reason-2] Local + Thinking level 2',
-			    description = 'Default local + Level 2 reasoning (up to 15K thinking tokens)',
-			)
-		)
-		self.add_new_if_needed(
-			ModelItem(
-				id = '***local',
-			    name = '[reason-3] Local + Thinking level 3',
-			    description = 'Default local + Level 3 reasoning (up to 30K thinking tokens)',
-			)
-		)
-		self.add_new_if_needed(
-			ModelItem(
-				id = '*local/dev',
-			    name = '[reason-1] Dev + Thinking level 1',
-			    description = 'Dev + Thinking (up to 5K thinking tokens)',
-			)
-		)
-		self.add_new_if_needed(
-			ModelItem(
-				id = '**local/dev',
-			    name = '[reason-2] Dev + Thinking level 2',
-			    description = 'Dev + Thinking (up to 15K thinking tokens)',
-			)
-		)
-		self.add_new_if_needed(
-			ModelItem(
-				id = '***local/dev',
-			    name = '[reason-3] Dev + Thinking level 3',
-			    description = 'Dev + Thinking (up to 30K thinking tokens)',
-			)
-		)
-		
 
 
 	def list_all(self) -> list[ModelItem]:
@@ -124,5 +80,3 @@ class DbModels:
 			)
 			_connection.commit()
 			return True
-
-
