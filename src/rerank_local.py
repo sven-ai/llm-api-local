@@ -16,8 +16,8 @@ class Rerank:
             automodel_args={"torch_dtype": "auto"},
         )
 
-        print(f'contents: {contents}')
-        print(f'DOCS: {contents['documents']}')
+        # print(f'contents: {contents}')
+        # print(f'DOCS: {contents['documents']}')
 
         res0 = model.rank(
             q, contents['documents'],
