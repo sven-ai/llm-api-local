@@ -113,7 +113,7 @@ class Llmprovider(LLMProviderBase):
 			print(f'Thinking level: {thinking_level}')
 
 			def max_tokens(tl):
-				return 6000 if tl == 1 else 20000
+				return 7000 if tl == 1 else 20000
 				# return {
     #                 1: 6000,
     #                 2: 20000,
@@ -159,7 +159,7 @@ class Llmprovider(LLMProviderBase):
     			# TODO: - try getting these from `item` openAI request
     			# These may be set there.
     			temperature=temperature,
-    			max_tokens=1000,
+    			max_tokens=2000,
     			messages=messages,
     			stream=False,
 
