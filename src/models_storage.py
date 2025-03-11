@@ -67,7 +67,7 @@ class DbModels:
 	def update_metadata(self, item: ModelItem):
 		with _connection:
 			cursor = _connection.cursor()
-			cursor.execute(f'UPDATE models SET name = ?, description = ? WHERE id = ?', (item.name, item.description, item.id)
+			cursor.execute('UPDATE models SET name = ?, description = ? WHERE id = ?', [item.name, item.description, item.id]
 			)
 			_connection.commit()
 
@@ -76,7 +76,16 @@ class DbModels:
 		with _connection:
 			cursor = _connection.cursor()
 
-			cursor.execute(f'INSERT OR IGNORE INTO models VALUES (?, ?, ?)',(item.id, item.name, item.description)
+			cursor.execute('INSERT OR IGNORE INTO models VALUES (?, ?, ?)',[item.id, item.name, item.description]
 			)
+			_connection.commit()
+			return True
+
+
+	def delete(self, id: str) -> bool:
+		with _connection:
+			cursor = _connection.cursor()
+
+			cursor.execute('DELETE FROM models WHERE id = ?', [id])
 			_connection.commit()
 			return True
