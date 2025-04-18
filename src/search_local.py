@@ -62,7 +62,7 @@ class _Search:
 	def search(
 		self,
 		text: str,
-		n: int = 50,
+		n: int = 30,
 		):
 		return self.collection.query(
 			query_texts=[text],

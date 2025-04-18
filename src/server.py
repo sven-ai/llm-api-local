@@ -83,9 +83,10 @@ def search(q: str, collection: str):
     n = len(filtered['documents'])
     # print(f'SEARCH: {filtered}')
 
-    if n > 0:
+    top_n = 10
+    if n > top_n:
         ts = time.time()
-        ranked = rerank.rank(q, filtered)
+        ranked = rerank.rank(q, filtered, top_n)
         ts = time.time() - ts
         print(f'Took to rerank {n} docs: {ts}s')
         # print(f'ranked res: {ranked}')
@@ -274,7 +275,7 @@ def completions(
     if not access.bearer_is_valid(token):
         raise HTTPException(status_code=403, detail="Access Denied: Invalid Bearer Token")
 
-    # print(f'completions input item: {item}')
+    print(f'completions input item: {item}')
 
     messages = list(map(
         lambda x: fixedChatCompletionsPairItem(x),
