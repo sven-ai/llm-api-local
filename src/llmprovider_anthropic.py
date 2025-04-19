@@ -289,7 +289,7 @@ class Llmprovider(LLMProviderBase):
                     yield f"event: message\ndata: {contents}\n\n"
                 elif x.type == "message_stop":
                     # elif x.type == 'content_block_stop':
-                    print("Anthropic - streaming response ended.")
+                    # print("Anthropic - streaming response ended.")
 
                     contents = json.dumps(
                         self.llm.plaintext_content_response(
@@ -300,5 +300,5 @@ class Llmprovider(LLMProviderBase):
                         )
                     )
                     yield f"event: message\ndata: {contents}\n\n"
-                else:
-                    print(f"Anthropic parsing: skipped chunk type: {x.type}")
+                # else:
+                #     print(f"Anthropic parsing: skipped chunk type: {x.type}")
