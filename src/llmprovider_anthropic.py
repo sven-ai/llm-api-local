@@ -62,6 +62,8 @@ def _prep_citations(
     first = item.messages[0]
     last = item.messages[-1]
 
+    is_dev = item.model.startswith("/dev")
+
     system = ""
     if first.role == "system":
         # Drop first message that is `system` role
