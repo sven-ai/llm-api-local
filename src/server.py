@@ -267,9 +267,18 @@ def completions_v1(
     item: ChatCompletionsItem,
     token: str = Depends(oauth2_scheme),
 ):
-    return LLM().plaintext_content_response(
-        item.model, "Use /v2 API endpoint, not /v1. https://api.svenai.com/v2"
-    )
+    if (
+        item.model == "tmp"
+        or item.model == "*tmp"
+        or item.model == "**tmp"
+        or item.model == "***tmp"
+    ):
+        return completions(item, token)
+    else:
+        return LLM().plaintext_content_response(
+            item.model,
+            "Use /v2 API endpoint, not /v1. https://api.svenai.com/v2",
+        )
 
 
 @app.post("/v2/chat/completions")
@@ -302,7 +311,12 @@ def completions(
     # print(f'q: {q}')
 
     embeddings = None
-    if item.model == "tmp":
+    if (
+        item.model == "tmp"
+        or item.model == "*tmp"
+        or item.model == "**tmp"
+        or item.model == "***tmp"
+    ):
         # `tmp` blackhole model has no knowledge
         embeddings = empty_search_results
     else:
