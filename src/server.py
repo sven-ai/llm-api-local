@@ -77,7 +77,31 @@ def filter_search_results(contents, threshold: float = 0.3):
 rerank = load_module("rerank.yml")
 
 
+class SearchQuery(BaseModel):
+    q: str
+    n: int = 1
+
+
+@app.post("/search")
+def api_search(
+    query: SearchQuery,
+    token: str = Depends(oauth2_scheme),
+):
+    if not access.bearer_is_valid(token):
+        raise HTTPException(
+            status_code=403, detail="Access Denied: Invalid Bearer Token"
+        )
+
+    res = search(query.q, token)
+    if "documents" in res and len(res["documents"]) > 0:
+        return res["documents"][0]
+    else:
+        return "No related knowledge."
+
+
 def search(q: str, collection: str):
+    print(f"Searching in c: {collection} | q: {q}")
+
     neural_searcher = collections.get_or_insert(
         user_modelname_to_embedding_modelname(collection),
         lambda x: neural_search.new(x),
@@ -102,7 +126,7 @@ def search(q: str, collection: str):
 
         return ranked
     else:
-        print("Search found 0 related docs. Reranking skipped.")
+        print(f"Search found {n} related docs. Reranking skipped.")
         return filtered
 
 
@@ -332,7 +356,7 @@ def completions(
 
 dummy_html_200 = """
 <!DOCTYPE html> <html lang="en">
-    <head> <meta charset="UTF-8"> <meta name="viewport" content="width=device-width, initial-scale=1.0"> <title>Your Page Title</title>
+    <head> <meta charset="UTF-8"> <meta name="viewport" content="width=device-width, initial-scale=1.0"> <title>Sven AI</title>
     </head>
 
     <body>
@@ -454,6 +478,7 @@ if __name__ == "__main__":
 
     import uvicorn
 
+    # API server
     if len(sys.argv) > 1 and sys.argv[1] == "debug":
         uvicorn.run(
             # live code reload
