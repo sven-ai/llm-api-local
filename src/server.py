@@ -1,69 +1,41 @@
+import json
 import time
 import uuid
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.security import OAuth2PasswordBearer
-
-from fastmcp import FastMCP
-from mcp.server.sse import SseServerTransport
-from starlette.requests import Request
-from starlette.responses import PlainTextResponse
-from starlette.routing import Mount, Route
-from starlette.applications import Starlette
+from pydantic import BaseModel
 
 from config_models import *
 from loader import load_module
 from models_storage import *
 from utils import *
 
+rerank = load_module("rerank.yml")
 access = load_module("access.yml")
 neural_search = load_module("search.yml")
+from mcp_shared import *
+
+mcp_provider = load_module("mcp.yml")
 
 _db_models = DbModels()
 
-mcp = FastMCP(
-    name="DevBrain - Developer's Knowledge MCP Server",
-    instructions="Provides tools for knowledge and context discovery. Call `devbrain_find_knowledge()` and pass a question to retrieve related information. Results may include hints, tips, guides or code snippets. DevBrain's knowledge is quality knowledge curated by software developers.",
-)
+# mcp = FastMCP(
+#     name="DevBrain - Developer's Knowledge MCP Server",
+#     instructions="Provides tools for knowledge and context discovery. Call `devbrain_find_knowledge()` and pass a question to retrieve related information. Results may include hints, tips, guides or code snippets. DevBrain's provides up-to-date knowledge curated by real software developers.",
+# )
 
-# def create_sse_server(mcp: FastMCP):
-#     """Create a Starlette app that handles SSE connections and message handling"""
-#     transport = SseServerTransport("/messages/")
+# mcp_app = mcp.http_app(path="/http")
+# # mcp_app = mcp.http_app(path="/sse", transport="sse")
+# #
+# # To test sse:
+# # curl -N -H "Accept: text/event-stream" http://realm13:12345/mcp/sse
+# #
 
-#     # Define handler functions
-#     async def handle_sse(request):
-#         async with transport.connect_sse(
-#             request.scope, request.receive, request._send
-#         ) as streams:
-#             await mcp._mcp_server.run(
-#                 streams[0], streams[1], mcp._mcp_server.create_initialization_options()
-#             )
-
-#     # Create Starlette routes for SSE and message handling
-#     routes = [
-#         Route("/sse/", endpoint=handle_sse),
-#         Mount("/messages/", app=transport.handle_post_message),
-#     ]
-
-#     # Create a Starlette app
-#     return Starlette(routes=routes)
-
-# # Create the ASGI app
-# # mcp_app_http = mcp.http_app(path='/http')
-mcp_app_sse = mcp.http_app(path='/sse', transport="sse")
-# mcp_app_sse = mcp.http_app(transport="sse")
-# mcp_app_sse = mcp.sse_app() # fastmcp==2.3.1
-# mcp_app_sse = create_sse_server(mcp)
-#
-# To test sse:
-# curl -N -H "Accept: text/event-stream" http://realm13:12345/mcp/sse
-#
-
-# app = FastAPI(lifespan=mcp_app_http.lifespan)
-# app = FastAPI(lifespan=mcp_app_sse.lifespan)
+# app = FastAPI(lifespan=mcp_app.lifespan)
+# app.mount("/mcp", mcp_app)
 app = FastAPI()
-app.mount("/mcp", mcp_app_sse)
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 collections = LimitedDict(max_size=100)
@@ -123,38 +95,117 @@ def filter_search_results(contents, threshold: float = 0.3):
     # }
 
 
-rerank = load_module("rerank.yml")
+# @app.get("/debug/mcp")
+# async def debug_mcp():
+#     return {"message": "MCP mount point is working", "available_at": "/mcp/sse"}
 
 
-@app.get("/debug/mcp")
-async def debug_mcp():
-    return {"message": "MCP mount point is working", "available_at": "/mcp/sse"}
+def flatten_mcp_items(data):
+    result = []
+
+    for i in range(min(len(data["documents"]), len(data["metadatas"]))):
+        doc_title = data["documents"][i]
+        metadata = data["metadatas"][i]
+
+        if "desc" in metadata and "url" in metadata:
+            result.append(
+                {
+                    "title": doc_title,
+                    "desc": metadata["desc"],
+                    "url": metadata["url"],
+                }
+            )
+
+    return result
 
 
-@mcp.tool()
-async def devbrain_find_knowledge(q: str) -> str:
-    """Queries DevBrain (aka `developer's brain` system) and returns relevant information.
+# @mcp.tool()
+# async def devbrain_find_knowledge(q: str, token: str) -> str:
+#     """Queries DevBrain (aka `developer's brain` system) and returns relevant information.
 
-    Args:
-        q: The question or ask to query for knowledge
+#     Args:
+#         q: The question or ask to query for knowledge
 
-    Returns:
-        str: Helpful knowledge and context information from DevBrain
-    """
-    try:
-        print('Searching DevBrain')
+#     Returns:
+#         str: Helpful knowledge and context information from DevBrain (formatted as JSON list of article items, with title, short description and a URL to the original article).
+#     """
 
-        res = search(q, 'UQfcK63qI4zyRCnTZSPQ')
-        if "documents" in res and len(res["documents"]) > 0:
-            return res["documents"][0]
-        else:
-            return "No related knowledge."
-    except Exception as e:
-        return f"DevBrain failed with error: {str(e)}"
+#     return newsletter_find(q, token)
 
-# class SearchQuery(BaseModel):
-#     q: str
-#     n: int = 1
+
+@app.put("/newsletter/ingest/html")
+async def newsletter_ingest_html(
+    item: IngestNewsletterHtml,
+    background_tasks: BackgroundTasks,
+    token: str = Depends(oauth2_scheme),
+):
+    if not access.bearer_is_valid(token):
+        raise HTTPException(
+            status_code=403, detail="Access Denied: Invalid Bearer Token"
+        )
+
+    model = mcp_provider.model_for_email(item.email_to)
+    if not isinstance(model, str) or not model:
+        raise HTTPException(status_code=400, detail="Invalid email_to")
+    neural_searcher = collections.get_or_insert(
+        model,
+        lambda x: neural_search.new(x),
+    )
+
+    added = mcp_provider.ingest_html(background_tasks, item, neural_searcher)
+    if added == False:
+        raise HTTPException(status_code=500)
+
+    return HTMLResponse(content="<html><body>OK</body></html>", status_code=200)
+
+
+@app.put("/newsletter/ingest")
+def newsletter_ingest(
+    item: IngestNewsletterItem, token: str = Depends(oauth2_scheme)
+):
+    if not access.bearer_is_valid(token):
+        raise HTTPException(
+            status_code=403, detail="Access Denied: Invalid Bearer Token"
+        )
+
+    if len(item.newsletter) == 0:
+        print("Newsletter is empty. No items to ingest.")
+        return HTMLResponse(
+            content="<html><body>OK</body></html>", status_code=200
+        )
+
+    added = mcp_provider.newsletter_ingest(neural_search, collections, item)
+    if added == False:
+        raise HTTPException(status_code=500)
+
+    return HTMLResponse(content="<html><body>OK</body></html>", status_code=200)
+
+
+class SearchQuery(BaseModel):
+    q: str
+    n: int = 1
+
+
+@app.post("/newsletter/find")
+async def newsletter_find(
+    query: SearchQuery,
+    token: str = Depends(oauth2_scheme),
+):
+    if not access.bearer_is_valid(token):
+        raise HTTPException(
+            status_code=403, detail="Access Denied: Invalid Bearer Token"
+        )
+
+    res = search(query.q, token)
+    items = []
+    if "documents" in res and len(res["documents"]) > 0:
+        items = flatten_mcp_items(res)
+
+    if len(items) > 0:
+        return json.dumps(items, indent=2)
+    else:
+        return "No related knowledge."
+
 
 # @app.post("/search")
 # def api_search(
@@ -343,10 +394,9 @@ def models(
     }
 
 
-llm_provider = load_module("llmprovider.yml")
 from llm import *
-from loader import load_module
 
+llm_provider = load_module("llmprovider.yml")
 embed = load_module("embed.yml")
 
 

@@ -7,3 +7,4 @@ pydantic
 anthropic
 sentence-transformers
 transformers
+gunicorn
