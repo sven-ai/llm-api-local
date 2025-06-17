@@ -151,6 +151,7 @@ async def newsletter_ingest_html(
         model,
         lambda x: neural_search.new(x),
     )
+    print(f"Injesting newsletter-html for: {item.email_to} | model: {model}")
 
     added = mcp_provider.ingest_html(background_tasks, item, neural_searcher)
     if added == False:
@@ -174,7 +175,15 @@ def newsletter_ingest(
             content="<html><body>OK</body></html>", status_code=200
         )
 
-    added = mcp_provider.newsletter_ingest(neural_search, collections, item)
+    model = mcp_provider.model_for_email(item.email_to)
+    if not isinstance(model, str) or not model:
+        raise HTTPException(status_code=400, detail="Invalid email_to")
+    neural_searcher = collections.get_or_insert(
+        model,
+        lambda x: neural_search.new(x),
+    )
+
+    added = mcp_provider.newsletter_ingest(neural_search, item)
     if added == False:
         raise HTTPException(status_code=500)
 

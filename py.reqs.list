@@ -1,10 +1,11 @@
-fastapi
-fastmcp
-# fastmcp==2.3.1 # 2.3.2 deprecates SSE
-uvicorn
 chromadb
 pydantic
 anthropic
 sentence-transformers
 transformers
 gunicorn
+# gevent
+uvicorn-worker
+fastapi
+fastmcp
+# fastmcp==2.3.1 # 2.3.2 deprecates SSE
