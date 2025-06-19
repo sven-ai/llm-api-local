@@ -7,9 +7,13 @@ class Search:
         return _Search(collection_name)
 
 
-_client = chromadb.HttpClient(host="chromadb", port=8000)
+from loader import load_config, load_module
 
-from loader import load_module
+_client = chromadb.HttpClient(
+    host=load_config("search.yml")["hostname"],
+    # host="chromadb",
+    port=8000,
+)
 
 embed = load_module("embed.yml")
 
@@ -20,6 +24,9 @@ class _EmbeddingFunction(EmbeddingFunction):
 
     def name(self) -> str:
         return "SvenEmbeddingFunction"
+
+    def get_config(self) -> dict:
+        return {}
 
     def __call__(self, input: Documents) -> Embeddings:
         return [embed.text(doc) for doc in input]
@@ -49,11 +56,13 @@ class _Search:
         text: str,
         id: str,
         metadata: dict[str, str],
+        embedding=None,
     ):
         # TODO: - do to add if already exists - check by ID
         # Save time not embedding
 
-        embedding = self.emb_fn([text])
+        if embedding is None:
+            embedding = self.emb_fn([text])
         # embedding = [self.embed.text(text)]
 
         self.collection.add(
@@ -66,6 +75,7 @@ class _Search:
     def search(
         self,
         text: str,
+        tags: list[str] | None = None,
         n: int = 30,
     ):
         return self.collection.query(
@@ -74,6 +84,20 @@ class _Search:
             # where={"metadata_field": "is_equal_to_this"},
             # where_document={"$contains":"search_string"}
         )
+
+        #
+        # Multi-Category/Tag Filters in chroma:
+        # https://cookbook.chromadb.dev/strategies/multi-category-filters/
+        #
+        # "$or" example
+        # https://cookbook.chromadb.dev/strategies/keyword-search/
+        #
+        # self.collection.query(
+        #     query_texts=["technology"],
+        #     where_document={
+        #         "$or": [{"$contains": "technology"}, {"$contains": "freak"}]
+        #     },
+        # )
 
     def peek(self):
         return self.collection.peek()

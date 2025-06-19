@@ -146,7 +146,9 @@ async def newsletter_ingest_html(
 
     model = mcp_provider.model_for_email(item.email_to)
     if not isinstance(model, str) or not model:
-        raise HTTPException(status_code=400, detail="Invalid email_to")
+        raise HTTPException(
+            status_code=400, detail=f"Invalid email_to: {item.email_to}"
+        )
     neural_searcher = collections.get_or_insert(
         model,
         lambda x: neural_search.new(x),
@@ -191,7 +193,8 @@ def newsletter_ingest(
 
 
 class SearchQuery(BaseModel):
-    q: str
+    q: str  # broad search query string
+    tags: str | None = None  # comma-separated list of keywords
     n: int = 1
 
 
@@ -205,7 +208,12 @@ async def newsletter_find(
             status_code=403, detail="Access Denied: Invalid Bearer Token"
         )
 
-    res = search(query.q, token)
+    tag_list = None
+    if query.tags:
+        tag_list = [tag.strip() for tag in query.tags.split(",") if tag.strip()]
+    print(f"tag_list: {tag_list}")
+
+    res = search(token, query.q, tag_list)
     items = []
     if "documents" in res and len(res["documents"]) > 0:
         items = flatten_mcp_items(res)
@@ -213,7 +221,7 @@ async def newsletter_find(
     if len(items) > 0:
         return json.dumps(items, indent=2)
     else:
-        return "No related knowledge."
+        return "No related knowledge at this time for this search query."
 
 
 # @app.post("/search")
@@ -226,14 +234,14 @@ async def newsletter_find(
 #             status_code=403, detail="Access Denied: Invalid Bearer Token"
 #         )
 
-#     res = search(query.q, token)
+#     res = search(token, query.q)
 #     if "documents" in res and len(res["documents"]) > 0:
 #         return res["documents"][0]
 #     else:
 #         return "No related knowledge."
 
 
-def search(q: str, collection: str):
+def search(collection: str, q: str, tags: list[str] | None = None):
     print(f"Searching in c: {collection} | q: {q}")
 
     neural_searcher = collections.get_or_insert(
@@ -242,7 +250,7 @@ def search(q: str, collection: str):
     )
 
     ts = time.time()
-    res = neural_searcher.search(q)
+    res = neural_searcher.search(q, tags)
     ts = time.time() - ts
     print(f"Took to search using q text: {ts}s")
 
@@ -256,7 +264,7 @@ def search(q: str, collection: str):
         ranked = rerank.rank(q, filtered, top_n)
         ts = time.time() - ts
         print(f"Took to rerank {n} docs: {ts}s")
-        # print(f'ranked res: {ranked}')
+        print(f"ranked res: {ranked}")
 
         return ranked
     else:
@@ -478,8 +486,9 @@ def completions(
         embeddings = empty_search_results
     else:
         embeddings = search(
-            q=q,
             collection=item.model,
+            q=q,
+            tags=None,
         )
     assert embeddings is not None
 
@@ -604,28 +613,3 @@ def ollama_chat(
         },
         "done": True,
     }
-
-
-if __name__ == "__main__":
-    import sys
-
-    import uvicorn
-
-    # API server
-    if len(sys.argv) > 1 and sys.argv[1] == "debug":
-        uvicorn.run(
-            # live code reload
-            # https://github.com/encode/uvicorn/issues/687
-            "server:app",
-            reload=True,
-            workers=1,
-            host="0.0.0.0",
-            port=12345,
-        )
-    else:
-        # production env
-        uvicorn.run(
-            app,
-            host="0.0.0.0",
-            port=12345,
-        )
