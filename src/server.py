@@ -60,6 +60,10 @@ def filter_search_results_by_metadata(
     if not has_data:
         return empty_search_results
 
+    print(
+        f"Filtering results for required metadata fields: {metadata_required_fields}"
+    )
+
     metadatas = contents["metadatas"]
     indices_to_keep = []
     for i, metadata in enumerate(metadatas):
@@ -80,23 +84,27 @@ def filter_search_results_by_metadata(
     return filtered_contents
 
 
+def unwrap_chroma_awesome_data_format(contents):
+    return {
+        "distances": contents["distances"][0],
+        "documents": contents["documents"][0],
+        "ids": contents["ids"][0],
+        "metadatas": contents["metadatas"][0],
+    }
+
+
 def filter_search_results_by_threshold(contents, threshold: float = 0.3):
     # print(f'All (unfiltered) embeddings: {contents}')
 
-    has_data = (
-        ("distances" in contents)
-        and (len(contents["distances"]) > 0)
-        and (len(contents["distances"][0]) > 0)
-    )
+    has_data = ("distances" in contents) and (len(contents["distances"]) > 0)
     if not has_data:
         print("Found 0 related docs.")
         return empty_search_results
-        # return contents
 
-    distances = contents["distances"][0]
-    documents = contents["documents"][0]
-    ids = contents["ids"][0]
-    metadatas = contents["metadatas"][0]
+    distances = contents["distances"]
+    documents = contents["documents"]
+    ids = contents["ids"]
+    metadatas = contents["metadatas"]
 
     # print(f'All (unfiltered) distances: {distances}')
 
@@ -306,18 +314,40 @@ def search(
     ts = time.time()
     res = neural_searcher.search(q, tags)
     ts = time.time() - ts
-    print(f"Took to search using q text: {ts}s")
 
-    filtered = filter_search_results_by_threshold(
-        res,
+    filtered = unwrap_chroma_awesome_data_format(res)
+    print(
+        f"Took to search using q text: {ts}s. Got {len(filtered['documents'])} results."
     )
+    # print("")
+    # print(f"filtered: {filtered}")
+    # print(f"DOCS: {filtered['documents']}")
+
+    bn = len(filtered["documents"])
+    filtered = filter_search_results_by_threshold(
+        filtered,
+    )
+    an = len(filtered["documents"])
+    print(f"Filtered by similarity threshold: {bn} -> {an}")
+
+    # print("")
+    # print(f"filtered: {filtered}")
+    # print(f"DOCS: {filtered['documents']}")
+
     if metadata_required_fields:
+        bn = len(filtered["documents"])
         filtered = filter_search_results_by_metadata(
             filtered,
             metadata_required_fields,
         )
+        an = len(filtered["documents"])
+        print(f"Filtered by required metadata fields: {bn} -> {an}")
+
+    # print("")
+    # print(f"filtered: {filtered}")
+    # print(f"DOCS: {filtered['documents']}")
+
     n = len(filtered["documents"])
-    # print(f'SEARCH: {filtered}')
 
     top_n = 10
     if n > top_n:
