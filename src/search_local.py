@@ -56,7 +56,7 @@ class _Search:
         text: str,
         id: str,
         metadata: dict[str, str],
-        embedding=None,
+        embedding: list[float] | None,
     ):
         # TODO: - do to add if already exists - check by ID
         # Save time not embedding
@@ -104,3 +104,6 @@ class _Search:
 
     def delete(self, ids: list[str]):
         self.collection.delete(ids=ids)
+
+    def get(self, ids: list[str]):
+        return self.collection.get(ids=ids)

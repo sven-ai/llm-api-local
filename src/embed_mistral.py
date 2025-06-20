@@ -1,18 +1,10 @@
+import os
+import time
 
-import os, time
 from mistralai import Mistral
-from chromadb import Documents, EmbeddingFunction, Embeddings
-# import chromadb.utils.embedding_functions as embedding_functions
-
 
 if not os.environ.get("MISTRAL_API_KEY"):
-    print('ERR. `MISTRAL_API_KEY` env var is not set.')
-
-
-class MistralEmbeddingFunction(EmbeddingFunction):
-    def __call__(self, input: Documents) -> Embeddings:
-        e = Embed()
-        return [e.text(doc) for doc in input]
+    print("ERR. `MISTRAL_API_KEY` env var is not set.")
 
 
 class Embed:
@@ -21,15 +13,19 @@ class Embed:
 
         self.client = Mistral(api_key=api_key)
 
-    def text(self, text: str) -> list[float]:
+    def text(self, text: str, opts: dict | None = None) -> list[float]:
+        items = self.texts(texts=[text], opts=opts)
+        return items[0]
+
+    def texts(
+        self, texts: list[str], opts: dict | None = None
+    ) -> list[list[float]]:
         ts = time.time()
         embeddings_batch_response = self.client.embeddings.create(
-            model='mistral-embed',
-            inputs=[text],
+            model="mistral-embed",
+            inputs=texts,
         )
         ts = time.time() - ts
-        print(f'Took to create an embedding for text: {ts}s') 
+        print(f"Took to create an embedding for text: {ts}s")
 
-        return embeddings_batch_response.data[0].embedding
-
-
+        return list(map(lambda x: x.embedding, embeddings_batch_response.data))

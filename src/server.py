@@ -1,3 +1,4 @@
+import datetime
 import json
 import time
 import uuid
@@ -49,7 +50,37 @@ empty_search_results = {
 }
 
 
-def filter_search_results(contents, threshold: float = 0.3):
+def filter_search_results_by_metadata(
+    contents, metadata_required_fields: list[str]
+):
+    if not metadata_required_fields:
+        return contents
+
+    has_data = ("metadatas" in contents) and (len(contents["metadatas"]) > 0)
+    if not has_data:
+        return empty_search_results
+
+    metadatas = contents["metadatas"]
+    indices_to_keep = []
+    for i, metadata in enumerate(metadatas):
+        if all(
+            field in metadata and metadata[field]
+            for field in metadata_required_fields
+        ):
+            indices_to_keep.append(i)
+
+    filtered_contents = {}
+    for key, value_list in contents.items():
+        if isinstance(value_list, list):
+            filtered_contents[key] = [value_list[i] for i in indices_to_keep]
+        else:
+            print("ERR. Why the F. Python is trash.")
+            filtered_contents[key] = value_list  # Preserve non-list items
+
+    return filtered_contents
+
+
+def filter_search_results_by_threshold(contents, threshold: float = 0.3):
     # print(f'All (unfiltered) embeddings: {contents}')
 
     has_data = (
@@ -101,20 +132,33 @@ def filter_search_results(contents, threshold: float = 0.3):
 
 
 def flatten_mcp_items(data):
-    result = []
+    grouped_by_url = {}
 
     for i in range(min(len(data["documents"]), len(data["metadatas"]))):
         doc_title = data["documents"][i]
         metadata = data["metadatas"][i]
 
         if "desc" in metadata and "url" in metadata:
-            result.append(
-                {
+            url = metadata["url"]
+
+            if url not in grouped_by_url:
+                grouped_by_url[url] = {
                     "title": doc_title,
                     "desc": metadata["desc"],
-                    "url": metadata["url"],
+                    "url": url,
+                    "date": metadata.get("date")
+                    if not metadata.get("chunk")
+                    else None,
                 }
-            )
+
+    result = []
+    for url, item in grouped_by_url.items():
+        result.append(item)
+
+    now = datetime.datetime.now().isoformat()
+    for item in result:
+        if not item.get("date"):
+            item["date"] = now
 
     return result
 
@@ -139,7 +183,8 @@ async def newsletter_ingest_html(
     background_tasks: BackgroundTasks,
     token: str = Depends(oauth2_scheme),
 ):
-    if not access.bearer_is_valid(token):
+    token = access.bearer_is_valid(token)
+    if not token:
         raise HTTPException(
             status_code=403, detail="Access Denied: Invalid Bearer Token"
         )
@@ -166,7 +211,8 @@ async def newsletter_ingest_html(
 def newsletter_ingest(
     item: IngestNewsletterItem, token: str = Depends(oauth2_scheme)
 ):
-    if not access.bearer_is_valid(token):
+    token = access.bearer_is_valid(token)
+    if not token:
         raise HTTPException(
             status_code=403, detail="Access Denied: Invalid Bearer Token"
         )
@@ -185,8 +231,8 @@ def newsletter_ingest(
         lambda x: neural_search.new(x),
     )
 
-    added = mcp_provider.newsletter_ingest(neural_search, item)
-    if added == False:
+    added = mcp_provider.newsletter_ingest(neural_searcher, item)
+    if not added:
         raise HTTPException(status_code=500)
 
     return HTMLResponse(content="<html><body>OK</body></html>", status_code=200)
@@ -203,7 +249,8 @@ async def newsletter_find(
     query: SearchQuery,
     token: str = Depends(oauth2_scheme),
 ):
-    if not access.bearer_is_valid(token):
+    token = access.bearer_is_valid(token)
+    if not token:
         raise HTTPException(
             status_code=403, detail="Access Denied: Invalid Bearer Token"
         )
@@ -213,7 +260,9 @@ async def newsletter_find(
         tag_list = [tag.strip() for tag in query.tags.split(",") if tag.strip()]
     print(f"tag_list: {tag_list}")
 
-    res = search(token, query.q, tag_list)
+    res = search(
+        token, query.q, tag_list, metadata_required_fields=["desc", "url"]
+    )
     items = []
     if "documents" in res and len(res["documents"]) > 0:
         items = flatten_mcp_items(res)
@@ -241,7 +290,12 @@ async def newsletter_find(
 #         return "No related knowledge."
 
 
-def search(collection: str, q: str, tags: list[str] | None = None):
+def search(
+    collection: str,
+    q: str,
+    tags: list[str] | None = None,
+    metadata_required_fields: list[str] | None = None,
+):
     print(f"Searching in c: {collection} | q: {q}")
 
     neural_searcher = collections.get_or_insert(
@@ -254,7 +308,14 @@ def search(collection: str, q: str, tags: list[str] | None = None):
     ts = time.time() - ts
     print(f"Took to search using q text: {ts}s")
 
-    filtered = filter_search_results(res)
+    filtered = filter_search_results_by_threshold(
+        res,
+    )
+    if metadata_required_fields:
+        filtered = filter_search_results_by_metadata(
+            filtered,
+            metadata_required_fields,
+        )
     n = len(filtered["documents"])
     # print(f'SEARCH: {filtered}')
 
@@ -284,7 +345,8 @@ async def embed_add_v1(
     id: str = None,
     token: str = Depends(oauth2_scheme),
 ):
-    if not access.bearer_is_valid(token):
+    token = access.bearer_is_valid(token)
+    if not token:
         raise HTTPException(
             status_code=403, detail="Access Denied: Invalid Bearer Token"
         )
@@ -314,7 +376,8 @@ async def embed_add(
     id: str = None,
     token: str = Depends(oauth2_scheme),
 ):
-    if not access.bearer_is_valid(token):
+    token = access.bearer_is_valid(token)
+    if not token:
         raise HTTPException(
             status_code=403, detail="Access Denied: Invalid Bearer Token"
         )
@@ -371,7 +434,8 @@ def models_v1(
 def models(
     token: str = Depends(oauth2_scheme),
 ):
-    if not access.bearer_is_valid(token):
+    token = access.bearer_is_valid(token)
+    if not token:
         raise HTTPException(
             status_code=403, detail="Access Denied: Invalid Bearer Token"
         )
@@ -451,7 +515,8 @@ def completions(
     item: ChatCompletionsItem,
     token: str = Depends(oauth2_scheme),
 ):
-    if not access.bearer_is_valid(token):
+    token = access.bearer_is_valid(token)
+    if not token:
         raise HTTPException(
             status_code=403, detail="Access Denied: Invalid Bearer Token"
         )
@@ -528,7 +593,8 @@ async def dummy_api_html():
 async def ollama_head(
     token: str = Depends(oauth2_scheme),
 ):
-    if not access.bearer_is_valid(token):
+    token = access.bearer_is_valid(token)
+    if not token:
         raise HTTPException(
             status_code=403, detail="Access Denied: Invalid Bearer Token"
         )
@@ -541,7 +607,8 @@ async def ollama_head(
 def ollama_models(
     token: str = Depends(oauth2_scheme),
 ):
-    if not access.bearer_is_valid(token):
+    token = access.bearer_is_valid(token)
+    if not token:
         raise HTTPException(
             status_code=403, detail="Access Denied: Invalid Bearer Token"
         )
@@ -577,7 +644,8 @@ def ollama_chat(
     item: ChatCompletionsItem,
     token: str = Depends(oauth2_scheme),
 ):
-    if not access.bearer_is_valid(token):
+    token = access.bearer_is_valid(token)
+    if not token:
         raise HTTPException(
             status_code=403, detail="Access Denied: Invalid Bearer Token"
         )

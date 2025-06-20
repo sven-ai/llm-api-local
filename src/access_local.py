@@ -1,4 +1,3 @@
-
 class Access:
-	def bearer_is_valid(self, token: str) -> bool:
-		return True # localhost ffs
+    def bearer_is_valid(self, token: str) -> str | None:
+        return token
