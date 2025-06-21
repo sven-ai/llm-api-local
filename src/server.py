@@ -264,6 +264,10 @@ async def newsletter_find(
     if "documents" in res and len(res["documents"]) > 0:
         items = flatten_mcp_items(res)
 
+    print(
+        f"flatten_mcp_items (drop same or incorrectly formatted): {len(res['documents'])} -> {len(items)}"
+    )
+
     if len(items) > 0:
         return json.dumps(items, indent=2)
     else:
@@ -345,7 +349,7 @@ def search(
         ts = time.time()
         ranked = rerank.rank(q, filtered, top_n)
         ts = time.time() - ts
-        print(f"Took to rerank {n} docs: {ts}s")
+        print(f"Took to rerank {len(ranked['documents'])} docs: {ts}s")
         # print(f"ranked: {ranked}")
         # print_contents(ranked)
 
