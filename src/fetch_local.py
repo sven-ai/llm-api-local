@@ -1,11 +1,10 @@
-import urllib.parse
 # import urllib.robotparser
 from typing import Optional
 
+import robots
+
 # import requests
 from playwright.async_api import async_playwright
-
-import robots
 
 
 class Fetch:
@@ -34,7 +33,9 @@ class Fetch:
 
         except Exception as e:
             print(f"An error occurred during robots.txt check: {e}")
-            print("Assuming disallow as robots.txt could not be accessed or parsed.")
+            print(
+                "Assuming disallow as robots.txt could not be accessed or parsed."
+            )
             return False
 
     async def _fetch_html_with_playwright(self, url: str) -> Optional[str]:
@@ -45,7 +46,8 @@ class Fetch:
         async with async_playwright() as p:
             browser = None
             try:
-                browser = await p.chromium.launch(                    headless=True
+                browser = await p.chromium.launch(
+                    headless=True
                 )  # Run in headless mode
                 page = await browser.new_page()
                 await page.set_extra_http_headers(
@@ -53,9 +55,7 @@ class Fetch:
                 )  # Set user agent for Playwright
 
                 print(f"Navigating to {url} with Playwright...")
-                await page.goto(
-                    url, wait_until="domcontentloaded", timeout=20000
-                )  # Wait for DOM to be loaded
+                await page.goto(url, wait_until="networkidle", timeout=10000)
                 content = await page.content()  # Get the full HTML content
                 print(f"Successfully fetched content from {url}.")
                 return content
