@@ -112,9 +112,17 @@ def filter_search_results_by_threshold(contents, threshold: float = 0.3):
     def is_below_threshold(v):
         return v < threshold
 
-    indices = [
-        idx for idx, val in enumerate(distances) if is_below_threshold(val)
-    ]
+    indices = []
+    filtered_out_docs = []
+    for idx, val in enumerate(distances):
+        if is_below_threshold(val):
+            indices.append(idx)
+        else:
+            filtered_out_docs.append(documents[idx])
+    if filtered_out_docs:
+        print(
+            f"Filtered out {len(filtered_out_docs)} documents due to threshold: {filtered_out_docs}"
+        )
 
     return {
         # "distances": [dist for dist in distances if dist < threshold],
@@ -253,7 +261,7 @@ async def newsletter_read(
 
     html = await web_fetch.fetch(query.url)
     if not html:
-        return f"Failed to read full article at this time. It looks like domain's `robots.txt` prohibits web page access at {query.url}."
+        return f"Could not read full article at this time. It looks like domain's `robots.txt` prohibits web page access at {query.url}. NOTE: instruct a user to open the URL in browser instead."
 
     return await mcp_provider.read(html)
 
