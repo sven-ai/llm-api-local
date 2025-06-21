@@ -20,4 +20,4 @@ docker run --rm \
 	-w /sven -v $PWD:/sven \
 	-v $HOME/sven/llm-api-data:/data -v ~/.cache:/root/.cache \
 	--name=sven-llm-api \
-	python:3.13 /bin/sh -c 'pip install -r py.reqs.list && gunicorn --access-logfile - --log-level info -w 4 -k uvicorn.workers.UvicornWorker --chdir /sven/src server:app --bind 0.0.0.0:12345'
+	python:3.13 run.in-docker.sh

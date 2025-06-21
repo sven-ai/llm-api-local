@@ -3,6 +3,9 @@ from utils import *
 
 
 class Mcp:
+    def read(self, html):
+        return html
+
     def model_for_email(self, email_to: str) -> str:
         return ""
 
@@ -18,3 +21,6 @@ class Mcp:
         neural_searcher,
     ) -> bool:
         return False
+
+    def newsletter_read(self, url) -> str:
+        return "DUMMY"

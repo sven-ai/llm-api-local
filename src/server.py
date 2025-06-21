@@ -16,6 +16,7 @@ from utils import *
 rerank = load_module("rerank.yml")
 access = load_module("access.yml")
 neural_search = load_module("search.yml")
+web_fetch = load_module("fetch.yml")
 from mcp_shared import *
 
 mcp_provider = load_module("mcp.yml")
@@ -235,6 +236,28 @@ def newsletter_ingest(
     return HTMLResponse(content="<html><body>OK</body></html>", status_code=200)
 
 
+class ArticleReadQuery(BaseModel):
+    url: str
+
+
+@app.post("/newsletter/article/read")
+async def newsletter_read(
+    query: ArticleReadQuery,
+    token: str = Depends(oauth2_scheme),
+):
+    token = access.bearer_is_valid(token)
+    if not token:
+        raise HTTPException(
+            status_code=403, detail="Access Denied: Invalid Bearer Token"
+        )
+
+    html = await web_fetch.fetch(query.url)
+    if not html:
+        return f"Failed to read full article at this time. It looks like domain's `robots.txt` prohibits web page access at {query.url}."
+
+    return await mcp_provider.read(html)
+
+
 class SearchQuery(BaseModel):
     q: str  # broad search query string
     tags: str | None = None  # comma-separated list of keywords
@@ -268,8 +291,26 @@ async def newsletter_find(
         f"flatten_mcp_items (drop same or incorrectly formatted): {len(res['documents'])} -> {len(items)}"
     )
 
-    if len(items) > 0:
-        return json.dumps(items, indent=2)
+    n = len(items)
+    if n > 0:
+        if n == 1:
+            return f"""
+            Found 1 related article:
+            ```json
+            {json.dumps(items, indent=2)}
+            ```
+
+            Note: an article contains a URL to read its full content.
+            """
+        else:
+            return f"""
+            Below are {n} related articles:
+            ```json
+            {json.dumps(items, indent=2)}
+            ```
+
+            Note: each article contains a URL to read its full content.
+            """
     else:
         return "No related knowledge at this time for this search query."
 
