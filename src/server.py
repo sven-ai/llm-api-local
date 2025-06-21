@@ -50,7 +50,7 @@ empty_search_results = {
 }
 
 
-def filter_search_results_by_metadata(
+def filter_search_results_by_metadatas(
     contents, metadata_required_fields: list[str]
 ):
     if not metadata_required_fields:
@@ -64,24 +64,24 @@ def filter_search_results_by_metadata(
         f"Filtering results for required metadata fields: {metadata_required_fields}"
     )
 
+    documents = contents["documents"]
+    ids = contents["ids"]
     metadatas = contents["metadatas"]
-    indices_to_keep = []
+
+    indices = []
     for i, metadata in enumerate(metadatas):
         if all(
             field in metadata and metadata[field]
             for field in metadata_required_fields
         ):
-            indices_to_keep.append(i)
+            indices.append(i)
 
-    filtered_contents = {}
-    for key, value_list in contents.items():
-        if isinstance(value_list, list):
-            filtered_contents[key] = [value_list[i] for i in indices_to_keep]
-        else:
-            print("ERR. Why the F. Python is trash.")
-            filtered_contents[key] = value_list  # Preserve non-list items
-
-    return filtered_contents
+    return {
+        # "distances": [dist for dist in distances if dist < threshold],
+        "documents": [documents[idx] for idx in indices],
+        "ids": [ids[idx] for idx in indices],
+        "metadatas": [metadatas[idx] for idx in indices],
+    }
 
 
 def unwrap_chroma_awesome_data_format(contents):
@@ -121,17 +121,6 @@ def filter_search_results_by_threshold(contents, threshold: float = 0.3):
         "ids": [ids[idx] for idx in indices],
         "metadatas": [metadatas[idx] for idx in indices],
     }
-
-    # documents = [v for v, dist in zip(documents, distances) if dist < threshold]
-    # ids = [v for v, dist in zip(ids, distances) if dist < threshold]
-    # metadatas = [v for v, dist in zip(metadatas, distances) if dist < threshold]
-
-    # return {
-    #     # "distances": [dist for dist in distances if dist < threshold],
-    #     "documents": documents,
-    #     "ids": ids,
-    #     "metadatas": metadatas,
-    # }
 
 
 # @app.get("/debug/mcp")
@@ -315,13 +304,19 @@ def search(
     res = neural_searcher.search(q, tags)
     ts = time.time() - ts
 
+    # def print_contents(contents):
+    #     # print("")
+    #     # print(f"filtered: {filtered}")
+    #     # print(f"DOCS: {filtered['documents']}")
+    #     print(
+    #         f"DOCS: {len(contents['documents'])} | ids: {len(contents['ids'])} | metadatas: {len(contents['metadatas'])} | "
+    #     )
+
     filtered = unwrap_chroma_awesome_data_format(res)
     print(
         f"Took to search using q text: {ts}s. Got {len(filtered['documents'])} results."
     )
-    # print("")
-    # print(f"filtered: {filtered}")
-    # print(f"DOCS: {filtered['documents']}")
+    # print_contents(filtered)
 
     bn = len(filtered["documents"])
     filtered = filter_search_results_by_threshold(
@@ -330,22 +325,18 @@ def search(
     an = len(filtered["documents"])
     print(f"Filtered by similarity threshold: {bn} -> {an}")
 
-    # print("")
-    # print(f"filtered: {filtered}")
-    # print(f"DOCS: {filtered['documents']}")
+    # print_contents(filtered)
 
     if metadata_required_fields:
         bn = len(filtered["documents"])
-        filtered = filter_search_results_by_metadata(
+        filtered = filter_search_results_by_metadatas(
             filtered,
             metadata_required_fields,
         )
         an = len(filtered["documents"])
         print(f"Filtered by required metadata fields: {bn} -> {an}")
 
-    # print("")
-    # print(f"filtered: {filtered}")
-    # print(f"DOCS: {filtered['documents']}")
+    # print_contents(filtered)
 
     n = len(filtered["documents"])
 
@@ -355,7 +346,8 @@ def search(
         ranked = rerank.rank(q, filtered, top_n)
         ts = time.time() - ts
         print(f"Took to rerank {n} docs: {ts}s")
-        print(f"ranked res: {ranked}")
+        # print(f"ranked: {ranked}")
+        # print_contents(ranked)
 
         return ranked
     else:
