@@ -1,7 +1,7 @@
-import datetime
 import json
 import time
 import uuid
+from datetime import datetime
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
@@ -9,9 +9,21 @@ from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
 
 from config_models import *
+from kvdb import *
 from loader import load_module
 from models_storage import *
 from utils import *
+
+db_newsletters_cache_html = "newsletters_cache_html"
+#
+db_newsletters_search_query = "db_newsletters_search_query"
+db_newsletters_search_tags = "db_newsletters_search_tags"
+db_newsletters_search_ts = "db_newsletters_search_ts"
+db_newsletters_search_rescount = "db_newsletters_search_rescount"
+#
+db_newsletters_read_url = "db_newsletters_read_url"
+db_newsletters_read_ts = "db_newsletters_read_ts"
+db_newsletters_read_status = "db_newsletters_read_status"
 
 rerank = load_module("rerank.yml")
 access = load_module("access.yml")
@@ -121,7 +133,7 @@ def filter_search_results_by_threshold(contents, threshold: float = 0.3):
             filtered_out_docs.append(documents[idx])
     if filtered_out_docs:
         print(
-            f"Filtered out {len(filtered_out_docs)} documents due to threshold: {filtered_out_docs}"
+            f"Filtered out {len(filtered_out_docs)} documents due to threshold."
         )
 
     return {
@@ -161,7 +173,7 @@ def flatten_mcp_items(data):
     for url, item in grouped_by_url.items():
         result.append(item)
 
-    now = datetime.datetime.now().isoformat()
+    now = current_datetime_for_sqlite()
     for item in result:
         if not item.get("date"):
             item["date"] = now
@@ -244,6 +256,15 @@ def newsletter_ingest(
     return HTMLResponse(content="<html><body>OK</body></html>", status_code=200)
 
 
+def current_datetime_for_sqlite() -> str:
+    """
+    Returns the current date and time formatted as 'YYYY-MM-DD HH:MM:SS'
+    which is a suitable string format for SQLite.
+    """
+    # return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return datetime.now().isoformat()
+
+
 class ArticleReadQuery(BaseModel):
     url: str
 
@@ -259,11 +280,38 @@ async def newsletter_read(
             status_code=403, detail="Access Denied: Invalid Bearer Token"
         )
 
-    html = await web_fetch.fetch(query.url)
-    if not html:
+    url = query.url
+    if not url:
+        raise HTTPException(status_code=500, detail="Cmon bro")
+
+    stats_req_id = str(uuid.uuid4())
+    #
+    stats_url = kvdb_get_collection(db_newsletters_read_url)
+    stats_url.set(stats_req_id, url)
+    #
+    stats_ts = kvdb_get_collection(db_newsletters_read_ts)
+    stats_ts.set(stats_req_id, current_datetime_for_sqlite())
+    #
+    stats_status = kvdb_get_collection(db_newsletters_read_status)
+
+    cache = kvdb_get_collection(db_newsletters_cache_html)
+    cached_html = cache.get(url)
+    if cached_html:
+        print("Returning cached html.")
+        stats_status.set(stats_req_id, "0")  # Success
+        return cached_html
+
+    raw_html = await web_fetch.fetch(url)
+    if not raw_html:
+        stats_status.set(stats_req_id, "1")  # Failed
         return f"Could not read full article at this time. It looks like domain's `robots.txt` prohibits web page access at {query.url}. NOTE: instruct a user to open the URL in browser instead."
 
-    return await mcp_provider.read(html)
+    parsed_html = await mcp_provider.read(raw_html)
+    if parsed_html:
+        cache.set(url, parsed_html)
+
+    stats_status.set(stats_req_id, "0")  # Success
+    return parsed_html
 
 
 class SearchQuery(BaseModel):
@@ -282,6 +330,21 @@ async def newsletter_find(
         raise HTTPException(
             status_code=403, detail="Access Denied: Invalid Bearer Token"
         )
+    if not query.q:
+        raise HTTPException(status_code=403, detail="Cmon bro")
+
+    stats_req_id = str(uuid.uuid4())
+    #
+    stats_query = kvdb_get_collection(db_newsletters_search_query)
+    stats_query.set(stats_req_id, query.q)
+    #
+    stats_tags = kvdb_get_collection(db_newsletters_search_tags)
+    stats_tags.set(stats_req_id, query.tags if query.tags else "")
+    #
+    stats_ts = kvdb_get_collection(db_newsletters_search_ts)
+    stats_ts.set(stats_req_id, current_datetime_for_sqlite())
+    #
+    stats_rescount = kvdb_get_collection(db_newsletters_search_rescount)
 
     tag_list = None
     if query.tags:
@@ -295,11 +358,12 @@ async def newsletter_find(
     if "documents" in res and len(res["documents"]) > 0:
         items = flatten_mcp_items(res)
 
+    n = len(items)
+    stats_rescount.set(stats_req_id, f"{n}")
     print(
-        f"flatten_mcp_items (drop same or incorrectly formatted): {len(res['documents'])} -> {len(items)}"
+        f"flatten_mcp_items (drop same or incorrectly formatted): {len(res['documents'])} -> {n}"
     )
 
-    n = len(items)
     if n > 0:
         if n == 1:
             return f"""

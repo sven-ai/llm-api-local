@@ -56,7 +56,7 @@ class _Search:
         text: str,
         id: str,
         metadata: dict[str, str],
-        embedding: list[float] | None,
+        embedding: list[float] | None = None,
     ):
         # TODO: - do to add if already exists - check by ID
         # Save time not embedding

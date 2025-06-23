@@ -1,4 +1,6 @@
+python x_kvdb_test.py
+exit
+
 python x_fetch_test.py
 # python x_fetch_teset_robotspy.py
-
 # python x_fetch_teset_robotsparser.py
