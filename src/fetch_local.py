@@ -8,7 +8,7 @@ from playwright.async_api import async_playwright
 
 
 class Fetch:
-    def __init__(self, user_agent: str = "SvenBrowser/1.0 (anton@mimecam.com)"):
+    def __init__(self, user_agent: str = "SvenBrowser/1.0 (anton@devbrain.io)"):
         self.user_agent = user_agent
 
     async def _check_robots_txt(self, url: str) -> bool:

@@ -344,7 +344,6 @@ async def newsletter_find(
     stats_ts = kvdb_get_collection(db_newsletters_search_ts)
     stats_ts.set(stats_req_id, current_datetime_for_sqlite())
     #
-    stats_rescount = kvdb_get_collection(db_newsletters_search_rescount)
 
     tag_list = None
     if query.tags:
@@ -359,10 +358,12 @@ async def newsletter_find(
         items = flatten_mcp_items(res)
 
     n = len(items)
-    stats_rescount.set(stats_req_id, f"{n}")
     print(
         f"flatten_mcp_items (drop same or incorrectly formatted): {len(res['documents'])} -> {n}"
     )
+
+    stats_rescount = kvdb_get_collection(db_newsletters_search_rescount)
+    stats_rescount.set(stats_req_id, f"{n}")
 
     if n > 0:
         if n == 1:
@@ -381,7 +382,7 @@ async def newsletter_find(
             {json.dumps(items, indent=2)}
             ```
 
-            Note: each article contains a URL to read its full content.
+            Note: each article contains a URL to read its full content for deeper insights.
             """
     else:
         return "No related knowledge at this time for this search query."
