@@ -21,6 +21,11 @@ db_newsletters_search_tags = "db_newsletters_search_tags"
 db_newsletters_search_ts = "db_newsletters_search_ts"
 db_newsletters_search_rescount = "db_newsletters_search_rescount"
 #
+db_3designs_search_query = "db_3designs_search_query"
+db_3designs_search_tags = "db_3designs_search_tags"
+db_3designs_search_ts = "db_3designs_search_ts"
+db_3designs_search_rescount = "db_3designs_search_rescount"
+#
 db_newsletters_read_url = "db_newsletters_read_url"
 db_newsletters_read_ts = "db_newsletters_read_ts"
 db_newsletters_read_status = "db_newsletters_read_status"
@@ -149,7 +154,7 @@ def filter_search_results_by_threshold(contents, threshold: float = 0.3):
 #     return {"message": "MCP mount point is working", "available_at": "/mcp/sse"}
 
 
-def flatten_mcp_items(data):
+def flatten_mcp_newsletter_items(data):
     grouped_by_url = {}
 
     for i in range(min(len(data["documents"]), len(data["metadatas"]))):
@@ -355,11 +360,11 @@ async def newsletter_find(
     )
     items = []
     if "documents" in res and len(res["documents"]) > 0:
-        items = flatten_mcp_items(res)
+        items = flatten_mcp_newsletter_items(res)
 
     n = len(items)
     print(
-        f"flatten_mcp_items (drop same or incorrectly formatted): {len(res['documents'])} -> {n}"
+        f"flatten_mcp_newsletter_items (drop same or incorrectly formatted): {len(res['documents'])} -> {n}"
     )
 
     stats_rescount = kvdb_get_collection(db_newsletters_search_rescount)
@@ -386,6 +391,117 @@ async def newsletter_find(
             """
     else:
         return "No related knowledge at this time for this search query."
+
+
+def flatten_mcp_3designs_items(data):
+    grouped_by_code = {}
+
+    for i in range(min(len(data["documents"]), len(data["metadatas"]))):
+        contents = data["documents"][i]
+        metadata = data["metadatas"][i]
+
+        if "code" in metadata and "type" in metadata:
+            code = metadata["code"]
+
+            typeKey = {
+                "krystle": "view_description",
+                "view_desc": "view_description",
+                "view_purpose": "view_purpose",
+            }.get(metadata["type"], "view_description")
+            hint = {
+                "krystle": "`view_description` contains View specs (what functionality this view implements)",
+                "view_desc": "`view_description` contains View description (what this view renders on screen)",
+                "view_purpose": "`view_purpose` contains View purpose (what this view is best used for)",
+            }.get(metadata["type"], "About this view")
+
+            inner = grouped_by_code.get(code, [])
+            inner.append(
+                {
+                    # "code": metadata["code"],
+                    typeKey: contents,
+                    # "hint": hint,
+                }
+            )
+
+            grouped_by_code[code] = inner
+
+    return grouped_by_code
+
+
+@app.post("/3designs/find")
+async def threedesigns_find(
+    query: SearchQuery,
+    token: str = Depends(oauth2_scheme),
+):
+    token = access.bearer_is_valid(token)
+    if not token:
+        raise HTTPException(
+            status_code=403, detail="Access Denied: Invalid Bearer Token"
+        )
+    if not query.q:
+        raise HTTPException(status_code=403, detail="Cmon bro")
+
+    stats_req_id = str(uuid.uuid4())
+    #
+    stats_query = kvdb_get_collection(db_3designs_search_query)
+    stats_query.set(stats_req_id, query.q)
+    #
+    stats_tags = kvdb_get_collection(db_3designs_search_tags)
+    stats_tags.set(stats_req_id, query.tags if query.tags else "")
+    #
+    stats_ts = kvdb_get_collection(db_3designs_search_ts)
+    stats_ts.set(stats_req_id, current_datetime_for_sqlite())
+    #
+
+    tag_list = None
+    if query.tags:
+        tag_list = [tag.strip() for tag in query.tags.split(",") if tag.strip()]
+    print(f"tag_list: {tag_list}")
+
+    res = search(
+        token, query.q, tag_list, metadata_required_fields=["type", "code"]
+    )
+    items = []
+    if "documents" in res and len(res["documents"]) > 0:
+        items = flatten_mcp_3designs_items(res)
+
+    n = len(items)
+    print(
+        f"flatten_mcp_3designs_items (drop same or incorrectly formatted): {len(res['documents'])} -> {n}"
+    )
+
+    stats_rescount = kvdb_get_collection(db_3designs_search_rescount)
+    stats_rescount.set(stats_req_id, f"{n}")
+
+    if n > 0:
+        if n == 1:
+            code = next(iter(items))
+            vals = items[code]
+
+            return f"""
+            Found! Unique code for the SwiftUI view: `{code}`.
+            Now use `get_swiftui_view_from_3designs` tool to return full source code for it.
+
+            Semantic information about this view:
+            ```json
+            {json.dumps(vals, indent=2)}
+            ```
+
+            Use code `{code}` to get this SwiftUI view, or search for another one.
+            """
+        else:
+            return f"""
+            Found {n} SwiftUI views! Check out references in the json list below (by unique code):
+
+            ```json
+            {json.dumps(items, indent=2)}
+            ```
+
+            Choose one or more views that match your requirements and use the `get_swiftui_view_from_3designs` tool to get the full SwiftUI source code.
+            Use the 6-character code from the JSON above to retrieve a view.
+            """
+    else:
+        return "Opps. We couldn't match a search term to any SwiftUI view. You may want to rephrase your query and retry. `3designs` uses semantic similarity to find the best match. Consider framing your request as view's purpose or design description. For example: view that can help increase user retention, boost brand loyalty, or minimalistic colorful view with stretchy header and sharp edges."
 
 
 # @app.post("/search")
