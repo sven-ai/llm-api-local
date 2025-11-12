@@ -325,8 +325,8 @@ class SearchQuery(BaseModel):
     n: int = 1
 
 
-@app.post("/newsletter/find")
-async def newsletter_find(
+@app.post("/newsletter/find_json")
+async def newsletter_find_json(
     query: SearchQuery,
     token: str = Depends(oauth2_scheme),
 ):
@@ -369,6 +369,17 @@ async def newsletter_find(
 
     stats_rescount = kvdb_get_collection(db_newsletters_search_rescount)
     stats_rescount.set(stats_req_id, f"{n}")
+
+    return items
+
+
+@app.post("/newsletter/find")
+async def newsletter_find(
+    query: SearchQuery,
+    token: str = Depends(oauth2_scheme),
+):
+    items = await newsletter_find_json(query, token)
+    n = len(items)
 
     if n > 0:
         if n == 1:
