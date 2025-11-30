@@ -300,16 +300,26 @@ async def newsletter_read(
     stats_status = kvdb_get_collection(db_newsletters_read_status)
 
     cache = kvdb_get_collection(db_newsletters_cache_html)
-    cached_html = cache.get(url)
-    if cached_html:
-        print("Returning cached html.")
-        stats_status.set(stats_req_id, "0")  # Success
-        return cached_html
+    cached_parsed = cache.get(url)
+    if cached_parsed:
+        print("Returning cached LLM-processed markdown.")
+        stats_status.set(stats_req_id, "0")
+        return cached_parsed
 
-    raw_html = await web_fetch.fetch(url)
-    if not raw_html:
-        stats_status.set(stats_req_id, "1")  # Failed
-        return f"Could not read full article at this time. It looks like domain's `robots.txt` prohibits web page access at {query.url}. NOTE: instruct a user to open the URL in browser instead."
+    raw_cache = kvdb_get_collection(db_newsletters_cache_raw_html)
+    cached_raw = raw_cache.get(url)
+
+    if cached_raw:
+        print("Using cached raw HTML for LLM processing.")
+        cached_data = json.loads(cached_raw)
+        raw_html = cached_data["html"]
+    else:
+        print("Fetching raw HTML with playwright.")
+        fetch_result = await web_fetch.fetch(url)
+        if not fetch_result:
+            stats_status.set(stats_req_id, "1")
+            return f"Could not read full article at this time. It looks like domain's `robots.txt` prohibits web page access at {query.url}. NOTE: instruct a user to open the URL in browser instead."
+        raw_html = fetch_result.html
 
     parsed_html = await mcp_provider.read(raw_html)
     if parsed_html:

@@ -2,6 +2,8 @@ import sqlite3
 
 from utils import *
 
+db_newsletters_cache_raw_html = "newsletters_cache_raw_html"
+
 _connection = sqlite3.connect(
     "/data/kvs.db",
     check_same_thread=False,
