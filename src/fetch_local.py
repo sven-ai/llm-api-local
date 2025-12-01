@@ -107,7 +107,7 @@ class Fetch:
                 await page.goto(
                     url,
                     wait_until="networkidle",
-                    timeout=10000
+                    timeout=30000
                 )
                 content = await page.content()
                 final_url = strip_tracking_params(page.url)
