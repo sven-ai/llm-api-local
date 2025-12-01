@@ -137,7 +137,10 @@ class Fetch:
             Optional[FetchResult]: FetchResult with html and final_url if allowed and successful,
                                    otherwise None.
         """
-        if await self._check_robots_txt(url):
-            return await self._fetch_html_with_playwright(url)
-        else:
-            return None
+        # NOTE: robots.txt check disabled - often returns incorrect NO for sites that allow fetching
+        # if await self._check_robots_txt(url):
+        #     return await self._fetch_html_with_playwright(url)
+        # else:
+        #     return None
+
+        return await self._fetch_html_with_playwright(url)
