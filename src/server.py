@@ -595,7 +595,7 @@ def search(
 
     n = len(filtered["documents"])
 
-    top_n = 10
+    top_n = 30
     if n > top_n:
         ts = time.time()
         ranked = rerank.rank(q, filtered, top_n)
