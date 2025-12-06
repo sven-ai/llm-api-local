@@ -4,6 +4,7 @@ from utils import *
 
 db_newsletters_cache_raw_html = "newsletters_cache_raw_html"
 db_newsletters_inbox_html = "newsletters_inbox_html"
+db_domain_bad_counts = "domain_bad_counts"
 
 _connection = sqlite3.connect(
     "/data/kvs.db",
