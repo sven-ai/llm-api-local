@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
 
@@ -58,6 +58,7 @@ app = FastAPI()
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 collections = LimitedDict(max_size=100)
+processing_urls = set()
 
 
 empty_search_results = {
@@ -302,17 +303,70 @@ class ArticleReadQuery(BaseModel):
     url: str
 
 
+async def background_fetch_and_process_article(
+    url: str,
+    stats_req_id: str,
+):
+    try:
+        processing_urls.add(url)
+
+        stats_status = kvdb_get_collection(db_newsletters_read_status)
+        cache = kvdb_get_collection(db_newsletters_cache_markdown)
+        raw_cache = kvdb_get_collection(db_newsletters_cache_raw_html)
+
+        cached_raw = raw_cache.get(url)
+        if cached_raw:
+            cached_data = json.loads(cached_raw)
+            raw_html = cached_data["html"]
+            html_size = len(raw_html.encode("utf-8"))
+
+            if html_size < 1000:
+                print(f"Clearing bad cached HTML ({html_size} < 1000 bytes)")
+                raw_cache.delete(url)
+                fetch_result = await web_fetch.fetch(url)
+                if not fetch_result:
+                    stats_status.set(stats_req_id, "1")
+                    return
+                raw_html = fetch_result.html
+            else:
+                print("Using cached raw HTML for LLM processing.")
+        else:
+            print("Fetching raw HTML with playwright.")
+            fetch_result = await web_fetch.fetch(url)
+            if not fetch_result:
+                stats_status.set(stats_req_id, "1")
+                return
+            raw_html = fetch_result.html
+
+        html_size = len(raw_html.encode("utf-8"))
+        if html_size < 1000:
+            stats_status.set(stats_req_id, "1")
+            return
+
+        parsed_html = await mcp_provider.read(raw_html)
+
+        if parsed_html and len(parsed_html) >= 100:
+            cache.set(url, parsed_html)
+            stats_status.set(stats_req_id, "0")
+        else:
+            print(f"⏭️  Not caching - markdown too short ({len(parsed_html) if parsed_html else 0} < 100 chars)")
+            stats_status.set(stats_req_id, "1")
+
+    finally:
+        processing_urls.discard(url)
+
+
 @app.post("/newsletter/article/read")
 async def newsletter_read(
     query: ArticleReadQuery,
+    background_tasks: BackgroundTasks,
     token: str = Depends(oauth2_scheme),
 ):
-    import asyncio
-
     token = access.bearer_is_valid(token)
     if not token:
         raise HTTPException(
-            status_code=403, detail="Access Denied: Invalid Bearer Token"
+            status_code=403,
+            detail="Access Denied: Invalid Bearer Token",
         )
 
     url = normalize_url(query.url)
@@ -320,10 +374,7 @@ async def newsletter_read(
         raise HTTPException(status_code=500, detail="Cmon bro")
 
     if _is_url_blocked(url):
-        raise HTTPException(
-            status_code=403,
-            detail=f"Domain is blocked. URL: {url}"
-        )
+        raise HTTPException(status_code=403, detail="Domain is blocked.")
 
     print(f"📖 Article read request started for URL: {url}")
 
@@ -332,81 +383,36 @@ async def newsletter_read(
     stats_url.set(stats_req_id, url)
     stats_ts = kvdb_get_collection(db_newsletters_read_ts)
     stats_ts.set(stats_req_id, current_datetime_for_sqlite())
-    stats_status = kvdb_get_collection(db_newsletters_read_status)
 
     cache = kvdb_get_collection(db_newsletters_cache_markdown)
     cached_parsed = cache.get(url)
     if cached_parsed:
         if len(cached_parsed) < 100:
-            print(
-                f"Clearing bad cached markdown ({len(cached_parsed)} < 100 chars)"
-            )
+            print(f"Clearing bad cached markdown ({len(cached_parsed)} < 100 chars)")
             cache.delete(url)
         else:
             print("Returning cached markdown.")
+            stats_status = kvdb_get_collection(db_newsletters_read_status)
             stats_status.set(stats_req_id, "0")
             return cached_parsed
 
-    raw_cache = kvdb_get_collection(db_newsletters_cache_raw_html)
-    cached_raw = raw_cache.get(url)
+    if url in processing_urls:
+        print(f"Article already being processed: {url}")
+        raise HTTPException(
+            status_code=202,
+            detail="Article is being processed. Retry in a few moments.",
+        )
 
-    if cached_raw:
-        cached_data = json.loads(cached_raw)
-        raw_html = cached_data["html"]
-        html_size = len(raw_html.encode("utf-8"))
+    print(f"Scheduling background job for: {url}")
+    background_tasks.add_task(
+        background_fetch_and_process_article,
+        url,
+        stats_req_id,
+    )
 
-        if html_size < 1000:
-            print(
-                f"Clearing bad cached HTML ({html_size} < 1000 bytes)"
-            )
-            raw_cache.delete(url)
-            print("Fetching raw HTML with playwright.")
-            fetch_result = await web_fetch.fetch(url)
-            if not fetch_result:
-                stats_status.set(stats_req_id, "1")
-                return f"Could not read full article at this time. It looks like domain's `robots.txt` prohibits web page access at {query.url}. NOTE: instruct a user to open the URL in browser instead."
-            raw_html = fetch_result.html
-        else:
-            print("Using cached raw HTML for LLM processing.")
-    else:
-        print("Fetching raw HTML with playwright.")
-        fetch_result = await web_fetch.fetch(url)
-        if not fetch_result:
-            stats_status.set(stats_req_id, "1")
-            return f"Could not read full article at this time. It looks like domain's `robots.txt` prohibits web page access at {query.url}. NOTE: instruct a user to open the URL in browser instead."
-        raw_html = fetch_result.html
-
-    html_size = len(raw_html.encode("utf-8"))
-    if html_size < 1000:
-        stats_status.set(stats_req_id, "1")
-        return f"Article HTML too small ({html_size} bytes < 1KB). Likely an error page or minimal content."
-
-    async def generate_with_keepalive():
-        processing_task = asyncio.create_task(mcp_provider.read(raw_html))
-
-        while not processing_task.done():
-            await asyncio.sleep(10)
-            if not processing_task.done():
-                yield b"\n"
-
-        parsed_html = await processing_task
-
-        if parsed_html and len(parsed_html) >= 100:
-            cache.set(url, parsed_html)
-            stats_status.set(stats_req_id, "0")
-            yield parsed_html.encode("utf-8")
-        elif parsed_html:
-            print(f"⏭️  Not caching - markdown too short ({len(parsed_html)} < 100 chars)")
-            stats_status.set(stats_req_id, "1")
-            error_msg = f"Article content too short ({len(parsed_html)} characters). Unable to extract meaningful content."
-            yield error_msg.encode("utf-8")
-        else:
-            stats_status.set(stats_req_id, "1")
-            yield b"Failed to extract article content."
-
-    return StreamingResponse(
-        generate_with_keepalive(),
-        media_type="text/plain",
+    raise HTTPException(
+        status_code=202,
+        detail="Article processing started. Retry in a few moments to retrieve content.",
     )
 
 
