@@ -1,5 +1,13 @@
 from collections import OrderedDict
 
+
+def normalize_url(url: str) -> str:
+    from urllib.parse import urlparse, urlunparse
+
+    parsed = urlparse(url)
+    return urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", "", ""))
+
+
 # If dict has a value by key, then return it, otherwise insert new. Limit dict size to N items.
 class LimitedDict:
     def __init__(self, max_size=5):

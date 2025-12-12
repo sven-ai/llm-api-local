@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
 
@@ -307,26 +307,31 @@ async def newsletter_read(
     query: ArticleReadQuery,
     token: str = Depends(oauth2_scheme),
 ):
+    import asyncio
+
     token = access.bearer_is_valid(token)
     if not token:
         raise HTTPException(
             status_code=403, detail="Access Denied: Invalid Bearer Token"
         )
 
-    url = query.url
+    url = normalize_url(query.url)
     if not url:
         raise HTTPException(status_code=500, detail="Cmon bro")
+
+    if _is_url_blocked(url):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Domain is blocked. URL: {url}"
+        )
 
     print(f"📖 Article read request started for URL: {url}")
 
     stats_req_id = str(uuid.uuid4())
-    #
     stats_url = kvdb_get_collection(db_newsletters_read_url)
     stats_url.set(stats_req_id, url)
-    #
     stats_ts = kvdb_get_collection(db_newsletters_read_ts)
     stats_ts.set(stats_req_id, current_datetime_for_sqlite())
-    #
     stats_status = kvdb_get_collection(db_newsletters_read_status)
 
     cache = kvdb_get_collection(db_newsletters_cache_markdown)
@@ -376,16 +381,33 @@ async def newsletter_read(
         stats_status.set(stats_req_id, "1")
         return f"Article HTML too small ({html_size} bytes < 1KB). Likely an error page or minimal content."
 
-    parsed_html = await mcp_provider.read(raw_html)
-    if parsed_html and len(parsed_html) >= 100:
-        cache.set(url, parsed_html)
-    elif parsed_html:
-        print(f"⏭️  Not caching - markdown too short ({len(parsed_html)} < 100 chars)")
-        stats_status.set(stats_req_id, "1")
-        return f"Article content too short ({len(parsed_html)} characters). Unable to extract meaningful content."
+    async def generate_with_keepalive():
+        processing_task = asyncio.create_task(mcp_provider.read(raw_html))
 
-    stats_status.set(stats_req_id, "0")
-    return parsed_html
+        while not processing_task.done():
+            await asyncio.sleep(10)
+            if not processing_task.done():
+                yield b"\n"
+
+        parsed_html = await processing_task
+
+        if parsed_html and len(parsed_html) >= 100:
+            cache.set(url, parsed_html)
+            stats_status.set(stats_req_id, "0")
+            yield parsed_html.encode("utf-8")
+        elif parsed_html:
+            print(f"⏭️  Not caching - markdown too short ({len(parsed_html)} < 100 chars)")
+            stats_status.set(stats_req_id, "1")
+            error_msg = f"Article content too short ({len(parsed_html)} characters). Unable to extract meaningful content."
+            yield error_msg.encode("utf-8")
+        else:
+            stats_status.set(stats_req_id, "1")
+            yield b"Failed to extract article content."
+
+    return StreamingResponse(
+        generate_with_keepalive(),
+        media_type="text/plain",
+    )
 
 
 class SearchQuery(BaseModel):
