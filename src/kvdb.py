@@ -2,15 +2,19 @@ import sqlite3
 
 from utils import *
 
+# Stores raw fetched HTML for articles. Key: URL, Value: JSON with "html" and "date"
 db_newsletters_cache_raw_html = "newsletters_cache_raw_html"
+# Stores processed markdown for articles. Key: URL, Value: markdown string
+db_newsletters_cache_markdown = "newsletters_cache_markdown"
+# Stores incoming newsletter emails. Key: timestamp_email, Value: JSON with "html", "email_to", "date"
 db_newsletters_inbox_html = "newsletters_inbox_html"
+# Tracks bad article count per domain for blocklisting. Key: domain, Value: count as string
 db_domain_bad_counts = "domain_bad_counts"
 
 _connection = sqlite3.connect(
     "/data/kvs.db",
     check_same_thread=False,
     autocommit=True,
-    # autocommit=False,
 )
 _connection.execute("PRAGMA journal_mode=WAL")
 
@@ -19,7 +23,10 @@ _collections = LimitedDict(max_size=100)
 
 
 class KVCollection:
-    def __init__(self, collection: str):
+    def __init__(
+        self,
+        collection: str,
+    ):
         self.collection = collection
 
         with _connection:
@@ -33,7 +40,10 @@ class KVCollection:
             )
             _connection.commit()
 
-    def get(self, key: str) -> str | None:
+    def get(
+        self,
+        key: str,
+    ) -> str | None:
         with _connection:
             cursor = _connection.cursor()
 
@@ -42,17 +52,15 @@ class KVCollection:
             ).fetchone()
 
             if rows:
-                # print(
-                #     f"KVDB.get {self.collection} : ({key}) -> {len(rows[0])}-bytes"
-                # )
                 return rows[0]
 
-            # print(f"KVDB.get({key}) -> None")
             return None
 
-    def set(self, key: str, val: str):
-        # print(f"KVDB.set: {self.collection} : [ {key} : {len(val)}-bytes ]")
-
+    def set(
+        self,
+        key: str,
+        val: str,
+    ):
         with _connection:
             cursor = _connection.cursor()
 
@@ -67,7 +75,10 @@ class KVCollection:
 
             _connection.commit()
 
-    def delete(self, key: str):
+    def delete(
+        self,
+        key: str,
+    ):
         with _connection:
             cursor = _connection.cursor()
 
@@ -77,5 +88,7 @@ class KVCollection:
             _connection.commit()
 
 
-def kvdb_get_collection(name: str) -> KVCollection:
+def kvdb_get_collection(
+    name: str,
+) -> KVCollection:
     return _collections.get_or_insert(name, lambda x: KVCollection(name))

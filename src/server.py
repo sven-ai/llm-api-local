@@ -14,7 +14,6 @@ from loader import load_module
 from models_storage import *
 from utils import *
 
-db_newsletters_cache_html = "newsletters_cache_html"
 #
 db_newsletters_search_query = "db_newsletters_search_query"
 db_newsletters_search_tags = "db_newsletters_search_tags"
@@ -34,6 +33,7 @@ rerank = load_module("rerank.yml")
 access = load_module("access.yml")
 neural_search = load_module("search.yml")
 web_fetch = load_module("fetch.yml")
+blacklist = load_module("blacklist.yml")
 from mcp_shared import *
 
 mcp_provider = load_module("mcp.yml")
@@ -154,8 +154,30 @@ def filter_search_results_by_threshold(contents, threshold: float = 0.3):
 #     return {"message": "MCP mount point is working", "available_at": "/mcp/sse"}
 
 
-def flatten_mcp_newsletter_items(data):
+def _is_url_blocked(
+    url: str,
+) -> bool:
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url)
+    domain = parsed.netloc.lower()
+
+    all_blocked = (
+        blacklist.skipped_domains + blacklist.skipped_domains_post_fetch
+    )
+
+    for blocked in all_blocked:
+        if domain == blocked or domain.endswith(f".{blocked}"):
+            return True
+
+    return False
+
+
+def flatten_mcp_newsletter_items(
+    data,
+):
     grouped_by_url = {}
+    blocked_urls = []
 
     for i in range(min(len(data["documents"]), len(data["metadatas"]))):
         doc_title = data["documents"][i]
@@ -176,14 +198,20 @@ def flatten_mcp_newsletter_items(data):
 
     result = []
     for url, item in grouped_by_url.items():
-        result.append(item)
+        if _is_url_blocked(url):
+            blocked_urls.append(url)
+        else:
+            result.append(item)
 
     now = current_datetime_for_sqlite()
     for item in result:
         if not item.get("date"):
             item["date"] = now
 
-    return result
+    return (
+        result,
+        blocked_urls,
+    )
 
 
 # @mcp.tool()
@@ -299,20 +327,40 @@ async def newsletter_read(
     #
     stats_status = kvdb_get_collection(db_newsletters_read_status)
 
-    cache = kvdb_get_collection(db_newsletters_cache_html)
+    cache = kvdb_get_collection(db_newsletters_cache_markdown)
     cached_parsed = cache.get(url)
     if cached_parsed:
-        print("Returning cached LLM-processed markdown.")
-        stats_status.set(stats_req_id, "0")
-        return cached_parsed
+        if len(cached_parsed) < 100:
+            print(
+                f"Clearing bad cached markdown ({len(cached_parsed)} < 100 chars)"
+            )
+            cache.delete(url)
+        else:
+            print("Returning cached markdown.")
+            stats_status.set(stats_req_id, "0")
+            return cached_parsed
 
     raw_cache = kvdb_get_collection(db_newsletters_cache_raw_html)
     cached_raw = raw_cache.get(url)
 
     if cached_raw:
-        print("Using cached raw HTML for LLM processing.")
         cached_data = json.loads(cached_raw)
         raw_html = cached_data["html"]
+        html_size = len(raw_html.encode("utf-8"))
+
+        if html_size < 1000:
+            print(
+                f"Clearing bad cached HTML ({html_size} < 1000 bytes)"
+            )
+            raw_cache.delete(url)
+            print("Fetching raw HTML with playwright.")
+            fetch_result = await web_fetch.fetch(url)
+            if not fetch_result:
+                stats_status.set(stats_req_id, "1")
+                return f"Could not read full article at this time. It looks like domain's `robots.txt` prohibits web page access at {query.url}. NOTE: instruct a user to open the URL in browser instead."
+            raw_html = fetch_result.html
+        else:
+            print("Using cached raw HTML for LLM processing.")
     else:
         print("Fetching raw HTML with playwright.")
         fetch_result = await web_fetch.fetch(url)
@@ -321,11 +369,20 @@ async def newsletter_read(
             return f"Could not read full article at this time. It looks like domain's `robots.txt` prohibits web page access at {query.url}. NOTE: instruct a user to open the URL in browser instead."
         raw_html = fetch_result.html
 
-    parsed_html = await mcp_provider.read(raw_html)
-    if parsed_html:
-        cache.set(url, parsed_html)
+    html_size = len(raw_html.encode("utf-8"))
+    if html_size < 1000:
+        stats_status.set(stats_req_id, "1")
+        return f"Article HTML too small ({html_size} bytes < 1KB). Likely an error page or minimal content."
 
-    stats_status.set(stats_req_id, "0")  # Success
+    parsed_html = await mcp_provider.read(raw_html)
+    if parsed_html and len(parsed_html) >= 100:
+        cache.set(url, parsed_html)
+    elif parsed_html:
+        print(f"⏭️  Not caching - markdown too short ({len(parsed_html)} < 100 chars)")
+        stats_status.set(stats_req_id, "1")
+        return f"Article content too short ({len(parsed_html)} characters). Unable to extract meaningful content."
+
+    stats_status.set(stats_req_id, "0")
     return parsed_html
 
 
@@ -369,12 +426,40 @@ async def newsletter_find_json(
         token, query.q, tag_list, metadata_required_fields=["desc", "url"]
     )
     items = []
+    blocked_urls = []
     if "documents" in res and len(res["documents"]) > 0:
-        items = flatten_mcp_newsletter_items(res)
+        items, blocked_urls = flatten_mcp_newsletter_items(res)
+
+    if blocked_urls:
+        print(
+            f"Found {len(blocked_urls)} blocked URLs in search results - deleting from neural search"
+        )
+        neural_searcher = collections.get_or_insert(
+            user_modelname_to_embedding_modelname(token),
+            lambda x: neural_search.new(x),
+        )
+
+        ids_to_delete = []
+        for url in blocked_urls:
+            ids_to_delete.append(url)
+            ids_to_delete.append(f"desc+{url}")
+            for format_type in ["question", "explanation"]:
+                ids_to_delete.append(f"{format_type}:{url}")
+                ids_to_delete.append(f"{format_type}:desc:{url}")
+                ids_to_delete.append(f"{format_type}:desc+{url}")
+            for fact_idx in range(20):
+                ids_to_delete.append(f"fact:{fact_idx}:{url}")
+                ids_to_delete.append(f"fact:{fact_idx}:desc:{url}")
+                ids_to_delete.append(f"fact:{fact_idx}:desc+{url}")
+
+        neural_searcher.delete(ids=ids_to_delete)
+        print(
+            f"Deleted {len(ids_to_delete)} entries for {len(blocked_urls)} blocked URLs"
+        )
 
     n = len(items)
     print(
-        f"flatten_mcp_newsletter_items (drop same or incorrectly formatted): {len(res['documents'])} -> {n}"
+        f"flatten_mcp_newsletter_items (blocked: {len(blocked_urls)}, valid: {n}, total: {len(res['documents'])})"
     )
 
     stats_rescount = kvdb_get_collection(db_newsletters_search_rescount)
