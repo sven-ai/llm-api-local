@@ -317,6 +317,8 @@ async def newsletter_read(
     if not url:
         raise HTTPException(status_code=500, detail="Cmon bro")
 
+    print(f"📖 Article read request started for URL: {url}")
+
     stats_req_id = str(uuid.uuid4())
     #
     stats_url = kvdb_get_collection(db_newsletters_read_url)
