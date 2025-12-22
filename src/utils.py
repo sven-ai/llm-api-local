@@ -4,8 +4,23 @@ from collections import OrderedDict
 def normalize_url(url: str) -> str:
     from urllib.parse import urlparse, urlunparse
 
-    parsed = urlparse(url)
-    return urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", "", ""))
+    parsed = urlparse(url.lower())  # Lowercase everything
+
+    # Strip port from netloc if present (only split last occurrence)
+    netloc = parsed.netloc
+    if ':' in netloc and '@' not in netloc.split(':')[-1]:  # Make sure last part is port, not userinfo
+        netloc = netloc.rsplit(':', 1)[0]
+
+    # Normalize path - remove duplicate slashes
+    path = parsed.path
+    while '//' in path:
+        path = path.replace('//', '/')
+
+    # Ensure trailing slash
+    if not path.endswith('/'):
+        path = path + '/' if path else '/'
+
+    return urlunparse(('https', netloc, path, "", "", ""))
 
 
 # If dict has a value by key, then return it, otherwise insert new. Limit dict size to N items.
