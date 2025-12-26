@@ -1,4 +1,5 @@
 # import urllib.robotparser
+import asyncio
 from typing import Optional
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 
@@ -55,8 +56,48 @@ def strip_tracking_params(url: str) -> str:
 
 
 class Fetch:
-    def __init__(self, user_agent: str = "SvenBrowser/1.0 (anton@devbrain.io)"):
+    def __init__(self, user_agent: str = "SvenBrowser/1.0 (anton@devbrain.io)", max_concurrent: int = 15):
         self.user_agent = user_agent
+        self.max_concurrent = max_concurrent
+        self._playwright = None
+        self._browser = None
+        self._context = None
+        self._lock = asyncio.Lock()
+        self._semaphore = asyncio.Semaphore(max_concurrent)
+
+    async def _ensure_browser(self):
+        async with self._lock:
+            if self._browser is None:
+                self._playwright = await async_playwright().start()
+                self._browser = await self._playwright.chromium.launch(
+                    headless=True,
+                    args=[
+                        "--no-sandbox",
+                        "--disable-dev-shm-usage",
+                        "--disable-gpu"
+                    ]
+                )
+                self._context = await self._browser.new_context(
+                    user_agent=self.user_agent,
+                    viewport={"width": 1440, "height": 900}
+                )
+
+    async def close(self):
+        if self._context:
+            await self._context.close()
+            self._context = None
+        if self._browser:
+            await self._browser.close()
+            self._browser = None
+        if self._playwright:
+            await self._playwright.stop()
+            self._playwright = None
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.close()
 
     async def _check_robots_txt(self, url: str) -> bool:
         """
@@ -88,25 +129,17 @@ class Fetch:
     async def _fetch_html_with_playwright(
         self, url: str
     ) -> Optional[FetchResult]:
-        """
-        Fetches the HTML content of a URL using Playwright.
-        Returns FetchResult with html and final_url if successful, None otherwise.
-        """
-        async with async_playwright() as p:
-            browser = None
+        await self._ensure_browser()
+
+        async with self._semaphore:
+            page = None
             try:
-                browser = await p.chromium.launch(
-                    headless=True
-                )
-                page = await browser.new_page()
-                await page.set_extra_http_headers(
-                    {"User-Agent": self.user_agent}
-                )
+                page = await self._context.new_page()
 
                 print(f"Navigating to {url} with Playwright...")
                 await page.goto(
                     url,
-                    wait_until="networkidle",
+                    wait_until="domcontentloaded",
                     timeout=30000
                 )
                 content = await page.content()
@@ -122,9 +155,8 @@ class Fetch:
                 print(f"Playwright failed to fetch {url}: {e}")
                 return None
             finally:
-                if browser:
-                    await browser.close()
-                    print("Playwright browser closed.")
+                if page:
+                    await page.close()
 
     async def fetch(self, url: str) -> Optional[FetchResult]:
         """
