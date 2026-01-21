@@ -1,13 +1,13 @@
 # import urllib.robotparser
 import asyncio
 from typing import Optional
-from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 import robots
-from pydantic import BaseModel
 
 # import requests
 from playwright.async_api import async_playwright
+from pydantic import BaseModel
 
 
 class FetchResult(BaseModel):
@@ -56,7 +56,11 @@ def strip_tracking_params(url: str) -> str:
 
 
 class Fetch:
-    def __init__(self, user_agent: str = "SvenBrowser/1.0 (anton@devbrain.io)", max_concurrent: int = 15):
+    def __init__(
+        self,
+        user_agent: str = "SvenBrowser/1.0 (anton@devbrain.io)",
+        max_concurrent: int = 15,
+    ):
         self.user_agent = user_agent
         self.max_concurrent = max_concurrent
         self._playwright = None
@@ -74,12 +78,12 @@ class Fetch:
                     args=[
                         "--no-sandbox",
                         "--disable-dev-shm-usage",
-                        "--disable-gpu"
-                    ]
+                        "--disable-gpu",
+                    ],
                 )
                 self._context = await self._browser.new_context(
                     user_agent=self.user_agent,
-                    viewport={"width": 1440, "height": 900}
+                    viewport={"width": 1440, "height": 900},
                 )
 
     async def close(self):
@@ -138,19 +142,14 @@ class Fetch:
 
                 print(f"Navigating to {url} with Playwright...")
                 await page.goto(
-                    url,
-                    wait_until="domcontentloaded",
-                    timeout=30000
+                    url, wait_until="domcontentloaded", timeout=20000
                 )
                 content = await page.content()
                 final_url = strip_tracking_params(page.url)
                 print(
                     f"Successfully fetched content from {url}. Final URL: {final_url}"
                 )
-                return FetchResult(
-                    html=content,
-                    final_url=final_url
-                )
+                return FetchResult(html=content, final_url=final_url)
             except Exception as e:
                 print(f"Playwright failed to fetch {url}: {e}")
                 return None

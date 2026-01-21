@@ -10,6 +10,8 @@ db_newsletters_cache_markdown = "newsletters_cache_markdown"
 db_newsletters_inbox_html = "newsletters_inbox_html"
 # Tracks bad article count per domain for blocklisting. Key: domain, Value: count as string
 db_domain_bad_counts = "domain_bad_counts"
+# Stores fetch metrics (playwright vs simple). Key: engine_status, Value: count
+db_fetch_metrics = "fetch_metrics"
 
 _connection = sqlite3.connect(
     "/data/kvs.db",

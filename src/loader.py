@@ -5,9 +5,7 @@ import sys
 import yaml
 
 _cloud_src = "/sven/src"
-sys.path.append(
-    os.path.abspath(os.path.join(os.path.dirname(__file__), _cloud_src))
-)
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), _cloud_src)))
 
 
 class _Module:
@@ -22,9 +20,14 @@ class _Module:
                 print(f"Loading yaml config: {path}")
                 return yaml.safe_load(file)
 
-        parent = f"{_cloud_src}/{self.file_name}"
-        path = parent if os.path.exists(parent) else self.file_name
-        return load_yaml(path)
+        if "." in self.file_name:
+            print(f"Loading module from yml: {self.file_name}")
+            parent = f"{_cloud_src}/{self.file_name}"
+            path = parent if os.path.exists(parent) else self.file_name
+            return load_yaml(path)
+        else:
+            print(f"Loading module using direct module name: {self.file_name}")
+            return {"active": self.file_name}
 
     def _load_module(self):
         """Dynamically load the specified module."""

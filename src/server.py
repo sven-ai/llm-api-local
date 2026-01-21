@@ -1,3 +1,5 @@
+import asyncio
+import concurrent.futures
 import json
 import time
 import uuid
@@ -60,6 +62,12 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 collections = LimitedDict(max_size=100)
 processing_urls = set()
 
+# Thread pool executor for background tasks
+executor = concurrent.futures.ThreadPoolExecutor(
+    max_workers=10,
+    thread_name_prefix="server_background",
+)
+
 
 empty_search_results = {
     # "distances": [dist for dist in distances if dist < threshold],
@@ -69,9 +77,7 @@ empty_search_results = {
 }
 
 
-def filter_search_results_by_metadatas(
-    contents, metadata_required_fields: list[str]
-):
+def filter_search_results_by_metadatas(contents, metadata_required_fields: list[str]):
     if not metadata_required_fields:
         return contents
 
@@ -79,9 +85,7 @@ def filter_search_results_by_metadatas(
     if not has_data:
         return empty_search_results
 
-    print(
-        f"Filtering results for required metadata fields: {metadata_required_fields}"
-    )
+    print(f"Filtering results for required metadata fields: {metadata_required_fields}")
 
     documents = contents["documents"]
     ids = contents["ids"]
@@ -90,8 +94,7 @@ def filter_search_results_by_metadatas(
     indices = []
     for i, metadata in enumerate(metadatas):
         if all(
-            field in metadata and metadata[field]
-            for field in metadata_required_fields
+            field in metadata and metadata[field] for field in metadata_required_fields
         ):
             indices.append(i)
 
@@ -138,9 +141,7 @@ def filter_search_results_by_threshold(contents, threshold: float = 0.3):
         else:
             filtered_out_docs.append(documents[idx])
     if filtered_out_docs:
-        print(
-            f"Filtered out {len(filtered_out_docs)} documents due to threshold."
-        )
+        print(f"Filtered out {len(filtered_out_docs)} documents due to threshold.")
 
     return {
         # "distances": [dist for dist in distances if dist < threshold],
@@ -163,9 +164,7 @@ def _is_url_blocked(
     parsed = urlparse(url)
     domain = parsed.netloc.lower()
 
-    all_blocked = (
-        blacklist.skipped_domains + blacklist.skipped_domains_post_fetch
-    )
+    all_blocked = blacklist.skipped_domains + blacklist.skipped_domains_post_fetch
 
     for blocked in all_blocked:
         if domain == blocked or domain.endswith(f".{blocked}"):
@@ -192,9 +191,7 @@ def flatten_mcp_newsletter_items(
                     "title": doc_title,
                     "desc": metadata["desc"],
                     "url": url,
-                    "date": metadata.get("date")
-                    if not metadata.get("chunk")
-                    else None,
+                    "date": metadata.get("date") if not metadata.get("chunk") else None,
                 }
 
     result = []
@@ -260,9 +257,7 @@ async def newsletter_ingest_html(
 
 
 @app.put("/newsletter/ingest")
-def newsletter_ingest(
-    item: IngestNewsletterItem, token: str = Depends(oauth2_scheme)
-):
+def newsletter_ingest(item: IngestNewsletterItem, token: str = Depends(oauth2_scheme)):
     token = access.bearer_is_valid(token)
     if not token:
         raise HTTPException(
@@ -271,9 +266,7 @@ def newsletter_ingest(
 
     if len(item.newsletter) == 0:
         print("Newsletter is empty. No items to ingest.")
-        return HTMLResponse(
-            content="<html><body>OK</body></html>", status_code=200
-        )
+        return HTMLResponse(content="<html><body>OK</body></html>", status_code=200)
 
     model = mcp_provider.model_for_email(item.email_to)
     if not isinstance(model, str) or not model:
@@ -307,6 +300,7 @@ async def background_fetch_and_process_article(
     url: str,
     stats_req_id: str,
 ):
+    print("background_fetch_and_process_article")
     try:
         processing_urls.add(url)
 
@@ -349,17 +343,31 @@ async def background_fetch_and_process_article(
             cache.set(url, parsed_html)
             stats_status.set(stats_req_id, "0")
         else:
-            print(f"⏭️  Not caching - markdown too short ({len(parsed_html) if parsed_html else 0} < 100 chars)")
+            print(
+                f"⏭️  Not caching - markdown too short ({len(parsed_html) if parsed_html else 0} < 100 chars)"
+            )
             stats_status.set(stats_req_id, "1")
 
     finally:
         processing_urls.discard(url)
 
 
+def _fetch_and_process_sync(url: str, stats_req_id: str):
+    """Synchronous wrapper for async background_fetch_and_process_article"""
+    try:
+        # print("_fetch_and_process_sync START")
+        asyncio.run(background_fetch_and_process_article(url, stats_req_id))
+        # print("_fetch_and_process_sync DONE")
+    except Exception as e:
+        print(f"_fetch_and_process_sync ERROR: {e}")
+        import traceback
+
+        traceback.print_exc()
+
+
 @app.post("/newsletter/article/read")
 async def newsletter_read(
     query: ArticleReadQuery,
-    background_tasks: BackgroundTasks,
     token: str = Depends(oauth2_scheme),
 ):
     token = access.bearer_is_valid(token)
@@ -376,7 +384,7 @@ async def newsletter_read(
     if _is_url_blocked(url):
         raise HTTPException(status_code=403, detail="Domain is blocked.")
 
-    print(f"📖 Article read request started for URL: {url}")
+    print(f"📖 [server] Article read request started for URL: {url}")
 
     stats_req_id = str(uuid.uuid4())
     stats_url = kvdb_get_collection(db_newsletters_read_url)
@@ -404,8 +412,8 @@ async def newsletter_read(
         )
 
     print(f"Scheduling background job for: {url}")
-    background_tasks.add_task(
-        background_fetch_and_process_article,
+    executor.submit(
+        _fetch_and_process_sync,
         url,
         stats_req_id,
     )
@@ -452,9 +460,7 @@ async def newsletter_find_json(
         tag_list = [tag.strip() for tag in query.tags.split(",") if tag.strip()]
     print(f"tag_list: {tag_list}")
 
-    res = search(
-        token, query.q, tag_list, metadata_required_fields=["desc", "url"]
-    )
+    res = search(token, query.q, tag_list, metadata_required_fields=["desc", "url"])
     items = []
     blocked_urls = []
     if "documents" in res and len(res["documents"]) > 0:
@@ -594,9 +600,7 @@ async def threedesigns_find(
         tag_list = [tag.strip() for tag in query.tags.split(",") if tag.strip()]
     print(f"tag_list: {tag_list}")
 
-    res = search(
-        token, query.q, tag_list, metadata_required_fields=["type", "code"]
-    )
+    res = search(token, query.q, tag_list, metadata_required_fields=["type", "code"])
     items = []
     if "documents" in res and len(res["documents"]) > 0:
         items = flatten_mcp_3designs_items(res)
@@ -780,9 +784,7 @@ async def embed_add(
     model_item = ModelItem(
         id=item.model,
         name=item.metadata.get("name", f"{item.model} knowledge base"),
-        description=item.metadata.get(
-            "description", f"{item.model} generic about"
-        ),
+        description=item.metadata.get("description", f"{item.model} generic about"),
     )
     if item.model in known_models:
         #
@@ -876,11 +878,7 @@ embed = load_module("embed.yml")
 def fixedChatCompletionsPairItem(
     x: ChatCompletionsPairItem,
 ) -> ChatCompletionsPairItem:
-    return (
-        ChatCompletionsPairItem(role=x.role, content="...")
-        if x.content == ""
-        else x
-    )
+    return ChatCompletionsPairItem(role=x.role, content="...") if x.content == "" else x
 
 
 @app.post("/v1/chat/completions")
@@ -916,9 +914,7 @@ def completions(
     # print(f"completions input item: {item}")
     llm = LLM()
 
-    messages = list(
-        map(lambda x: fixedChatCompletionsPairItem(x), item.messages)
-    )
+    messages = list(map(lambda x: fixedChatCompletionsPairItem(x), item.messages))
     # # print(f'model: {model}')
     # print(f'fixed messages: {messages}')
 
@@ -926,9 +922,7 @@ def completions(
     item.messages = messages
 
     if len(messages) == 0:
-        return llm.plaintext_content_response(
-            item.model, "Be nice and ❤️ Jessica."
-        )
+        return llm.plaintext_content_response(item.model, "Be nice and ❤️ Jessica.")
     q = messages[-1].content
     # print(f'q: {q}')
 
