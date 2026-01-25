@@ -384,8 +384,6 @@ async def newsletter_read(
     if _is_url_blocked(url):
         raise HTTPException(status_code=403, detail="Domain is blocked.")
 
-    print(f"📖 [server] Article read request started for URL: {url}")
-
     stats_req_id = str(uuid.uuid4())
     stats_url = kvdb_get_collection(db_newsletters_read_url)
     stats_url.set(stats_req_id, url)
@@ -411,7 +409,7 @@ async def newsletter_read(
             detail="Article is being processed. Retry in a few moments.",
         )
 
-    print(f"Scheduling background job for: {url}")
+    print(f"📖 [server] Starting article processing: {url}")
     executor.submit(
         _fetch_and_process_sync,
         url,
