@@ -339,12 +339,12 @@ async def background_fetch_and_process_article(
 
         parsed_html = await mcp_provider.read(raw_html)
 
-        if parsed_html and len(parsed_html) >= 100:
+        if parsed_html and len(parsed_html) >= 500:
             cache.set(url, parsed_html)
             stats_status.set(stats_req_id, "0")
         else:
             print(
-                f"⏭️  Not caching - markdown too short ({len(parsed_html) if parsed_html else 0} < 100 chars)"
+                f"⏭️  Not caching - markdown too short ({len(parsed_html) if parsed_html else 0} < 500 chars)"
             )
             stats_status.set(stats_req_id, "1")
 

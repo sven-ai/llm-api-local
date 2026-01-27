@@ -1,5 +1,6 @@
 # import urllib.robotparser
 import asyncio
+import threading
 from typing import Optional
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
@@ -37,9 +38,7 @@ def strip_tracking_params(url: str) -> str:
     parsed = urlparse(url)
     query_params = parse_qs(parsed.query, keep_blank_values=True)
 
-    cleaned_params = {
-        k: v for k, v in query_params.items() if k not in tracking_params
-    }
+    cleaned_params = {k: v for k, v in query_params.items() if k not in tracking_params}
 
     cleaned_query = urlencode(cleaned_params, doseq=True)
 
@@ -59,37 +58,71 @@ class Fetch:
     def __init__(
         self,
         user_agent: str = "SvenBrowser/1.0 (anton@devbrain.io)",
-        max_concurrent: int = 15,
+        max_concurrent: int = 10,
     ):
         self.user_agent = user_agent
         self.max_concurrent = max_concurrent
         self._playwright = None
         self._browser = None
-        self._context = None
+        self._request_count = 0
+        self._max_requests_before_restart = 30
         self._lock = asyncio.Lock()
         self._semaphore = asyncio.Semaphore(max_concurrent)
 
     async def _ensure_browser(self):
-        async with self._lock:
-            if self._browser is None:
-                self._playwright = await async_playwright().start()
-                self._browser = await self._playwright.chromium.launch(
-                    headless=True,
-                    args=[
-                        "--no-sandbox",
-                        "--disable-dev-shm-usage",
-                        "--disable-gpu",
-                    ],
-                )
-                self._context = await self._browser.new_context(
-                    user_agent=self.user_agent,
-                    viewport={"width": 1440, "height": 900},
-                )
+        # Try to acquire lock, recreate if event loop mismatch
+        try:
+            async with self._lock:
+                if self._request_count >= self._max_requests_before_restart:
+                    await self._restart_browser()
+
+                if self._browser is None:
+                    self._playwright = await async_playwright().start()
+                    self._browser = await self._playwright.chromium.launch(
+                        headless=True,
+                        args=[
+                            "--no-sandbox",
+                            "--disable-dev-shm-usage",
+                            "--disable-gpu",
+                        ],
+                    )
+        except RuntimeError as e:
+            if "bound to a different event loop" in str(e):
+                print("Event loop changed, recreating lock...")
+                self._lock = asyncio.Lock()
+                async with self._lock:
+                    if self._request_count >= self._max_requests_before_restart:
+                        await self._restart_browser()
+
+                    if self._browser is None:
+                        self._playwright = await async_playwright().start()
+                        self._browser = await self._playwright.chromium.launch(
+                            headless=True,
+                            args=[
+                                "--no-sandbox",
+                                "--disable-dev-shm-usage",
+                                "--disable-gpu",
+                            ],
+                        )
+            else:
+                raise
+
+    async def _restart_browser(self):
+        print(
+            f"🔄 Restarting browser after {self._request_count} requests for memory cleanup..."
+        )
+
+        if self._browser:
+            await self._browser.close()
+            self._browser = None
+        if self._playwright:
+            await self._playwright.stop()
+            self._playwright = None
+
+        self._request_count = 0
+        print("✅ Browser restart complete")
 
     async def close(self):
-        if self._context:
-            await self._context.close()
-            self._context = None
         if self._browser:
             await self._browser.close()
             self._browser = None
@@ -125,25 +158,36 @@ class Fetch:
 
         except Exception as e:
             print(f"An error occurred during robots.txt check: {e}")
-            print(
-                "Assuming disallow as robots.txt could not be accessed or parsed."
-            )
+            print("Assuming disallow as robots.txt could not be accessed or parsed.")
             return False
 
-    async def _fetch_html_with_playwright(
-        self, url: str
-    ) -> Optional[FetchResult]:
+    async def _fetch_html_with_playwright(self, url: str) -> Optional[FetchResult]:
         await self._ensure_browser()
 
+        # Safety check: ensure browser is initialized
+        if self._browser is None:
+            print("Browser is None after _ensure_browser(), retrying initialization...")
+            await self._ensure_browser()
+            if self._browser is None:
+                print("Failed to initialize browser")
+                return None
+
+        self._request_count += 1
+
         async with self._semaphore:
+            context = None
             page = None
             try:
-                page = await self._context.new_page()
-
-                print(f"Navigating to {url} with Playwright...")
-                await page.goto(
-                    url, wait_until="domcontentloaded", timeout=20000
+                context = await self._browser.new_context(
+                    user_agent=self.user_agent,
+                    viewport={"width": 1440, "height": 900},
                 )
+                page = await context.new_page()
+
+                print(
+                    f"Navigating to {url} with Playwright... (req #{self._request_count})"
+                )
+                await page.goto(url, wait_until="domcontentloaded", timeout=20000)
                 content = await page.content()
                 final_url = strip_tracking_params(page.url)
                 print(
@@ -156,22 +200,24 @@ class Fetch:
             finally:
                 if page:
                     await page.close()
+                if context:
+                    await context.close()
 
     async def fetch(self, url: str) -> Optional[FetchResult]:
-        """
-        Fetches the content of a given URL after checking the domain's robots.txt.
+        """Public fetch method that delegates to thread-local instance"""
+        thread_local_fetch = get_fetch_instance()
+        return await thread_local_fetch._fetch_html_with_playwright(url)
 
-        Args:
-            url (str): The URL to fetch.
 
-        Returns:
-            Optional[FetchResult]: FetchResult with html and final_url if allowed and successful,
-                                   otherwise None.
-        """
-        # NOTE: robots.txt check disabled - often returns incorrect NO for sites that allow fetching
-        # if await self._check_robots_txt(url):
-        #     return await self._fetch_html_with_playwright(url)
-        # else:
-        #     return None
+# Thread-local storage for Fetch instances
+_fetch_thread_local = threading.local()
 
-        return await self._fetch_html_with_playwright(url)
+
+def get_fetch_instance() -> Fetch:
+    """
+    Get or create a Fetch instance for the current thread.
+    Each thread gets its own isolated Fetch instance to avoid event loop issues.
+    """
+    if not hasattr(_fetch_thread_local, "fetch"):
+        _fetch_thread_local.fetch = Fetch()
+    return _fetch_thread_local.fetch
