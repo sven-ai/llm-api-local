@@ -4,26 +4,22 @@ from collections import OrderedDict
 def normalize_url(url: str) -> str:
     from urllib.parse import urlparse, urlunparse
 
-    parsed = urlparse(url.lower())  # Lowercase everything
+    if "://" in url:
+        url = url.split("://", 1)[1]
+    elif ":" in url:
+        url = url.split(":", 1)[1]
 
-    # Strip port from netloc if present (only split last occurrence)
-    netloc = parsed.netloc
-    if (
-        ":" in netloc and "@" not in netloc.split(":")[-1]
-    ):  # Make sure last part is port, not userinfo
-        netloc = netloc.rsplit(":", 1)[0]
+    parts = url.split("/", 1)
+    domain = parts[0].lower()
+    path = parts[1] if len(parts) > 1 else ""
 
-    # Normalize path - remove duplicate slashes
-    path = parsed.path
-    while "//" in path:
-        path = path.replace("//", "/")
+    if path:
+        normalized = f"https://{domain}/{path}"
+    else:
+        normalized = f"https://{domain}"
 
-    # Ensure trailing slash
-    # DISABLED: Trailing slashes break file URLs with extensions (e.g., https://site.com/index.html/ is invalid, should be https://site.com/index.html)
-    # if not path.endswith('/'):
-    #     path = path + '/' if path else '/'
-
-    return urlunparse(("https", netloc, path, "", "", ""))
+    parsed = urlparse(normalized)
+    return urlunparse(("https", parsed.netloc, parsed.path, "", "", ""))
 
 
 # If dict has a value by key, then return it, otherwise insert new. Limit dict size to N items.
