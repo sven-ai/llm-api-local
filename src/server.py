@@ -243,13 +243,8 @@ async def newsletter_ingest_html(
         raise HTTPException(
             status_code=400, detail=f"Invalid email_to: {item.email_to}"
         )
-    neural_searcher = collections.get_or_insert(
-        model,
-        lambda x: neural_search.new(x),
-    )
-    print(f"Injesting newsletter-html for: {item.email_to} | model: {model}")
 
-    added = mcp_provider.ingest_html(background_tasks, item, neural_searcher)
+    added = mcp_provider.ingest_html(background_tasks, item)
     if added == False:
         raise HTTPException(status_code=500)
 
@@ -271,12 +266,8 @@ def newsletter_ingest(item: IngestNewsletterItem, token: str = Depends(oauth2_sc
     model = mcp_provider.model_for_email(item.email_to)
     if not isinstance(model, str) or not model:
         raise HTTPException(status_code=400, detail="Invalid email_to")
-    neural_searcher = collections.get_or_insert(
-        model,
-        lambda x: neural_search.new(x),
-    )
 
-    added = mcp_provider.newsletter_ingest(neural_searcher, item)
+    added = mcp_provider.newsletter_ingest(item)
     if not added:
         raise HTTPException(status_code=500)
 
