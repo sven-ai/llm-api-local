@@ -87,8 +87,9 @@ class Fetch:
                     )
         except RuntimeError as e:
             if "bound to a different event loop" in str(e):
-                print("Event loop changed, recreating lock...")
+                print("Event loop changed, recreating lock and semaphore...")
                 self._lock = asyncio.Lock()
+                self._semaphore = asyncio.Semaphore(self.max_concurrent)
                 async with self._lock:
                     if self._request_count >= self._max_requests_before_restart:
                         await self._restart_browser()
