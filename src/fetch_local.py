@@ -1,6 +1,5 @@
 # import urllib.robotparser
 import asyncio
-import threading
 from typing import Optional
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
@@ -187,11 +186,34 @@ class Fetch:
                 print(
                     f"Navigating to {url} with Playwright... (req #{self._request_count})"
                 )
-                await page.goto(url, wait_until="domcontentloaded", timeout=20000)
+
+                await page.add_init_script("""
+                    const style = document.createElement('style');
+                    style.textContent = `
+                        *, *::before, *::after {
+                            animation-duration: 0s !important;
+                            animation-delay: 0s !important;
+                            transition-duration: 0s !important;
+                            transition-delay: 0s !important;
+                        }
+                    `;
+                    document.head.appendChild(style);
+                """)
+
+                await page.goto(url, wait_until="networkidle", timeout=30000)
+                await page.wait_for_timeout(1000)
+
                 content = await page.content()
                 final_url = strip_tracking_params(page.url)
+
+                if not content or len(content) < 1024:
+                    print(
+                        f"⚠️ Playwright returned insufficient content ({len(content) if content else 0} bytes): {url}"
+                    )
+                    return None
+
                 print(
-                    f"Successfully fetched content from {url}. Final URL: {final_url}"
+                    f"Successfully fetched content from {url}. Final URL: {final_url} ({len(content)} bytes)"
                 )
                 return FetchResult(html=content, final_url=final_url)
             except Exception as e:
@@ -204,20 +226,4 @@ class Fetch:
                     await context.close()
 
     async def fetch(self, url: str) -> Optional[FetchResult]:
-        """Public fetch method that delegates to thread-local instance"""
-        thread_local_fetch = get_fetch_instance()
-        return await thread_local_fetch._fetch_html_with_playwright(url)
-
-
-# Thread-local storage for Fetch instances
-_fetch_thread_local = threading.local()
-
-
-def get_fetch_instance() -> Fetch:
-    """
-    Get or create a Fetch instance for the current thread.
-    Each thread gets its own isolated Fetch instance to avoid event loop issues.
-    """
-    if not hasattr(_fetch_thread_local, "fetch"):
-        _fetch_thread_local.fetch = Fetch()
-    return _fetch_thread_local.fetch
+        return await self._fetch_html_with_playwright(url)

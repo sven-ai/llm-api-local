@@ -1,11 +1,12 @@
 import asyncio
 import concurrent.futures
 import json
+import threading
 import time
 import uuid
 from datetime import datetime
 
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
@@ -15,6 +16,12 @@ from kvdb import *
 from loader import load_module
 from models_storage import *
 from utils import *
+
+
+def _thread_id() -> str:
+    t = threading.current_thread()
+    return f"[{t.name}:{t.ident}]"
+
 
 #
 db_newsletters_search_query = "db_newsletters_search_query"
@@ -229,9 +236,9 @@ def flatten_mcp_newsletter_items(
 @app.put("/newsletter/ingest/html")
 async def newsletter_ingest_html(
     item: IngestNewsletterHtml,
-    background_tasks: BackgroundTasks,
     token: str = Depends(oauth2_scheme),
 ):
+    print(f"{_thread_id()} PUT /newsletter/ingest/html email_to={item.email_to}")
     token = access.bearer_is_valid(token)
     if not token:
         raise HTTPException(
@@ -244,7 +251,7 @@ async def newsletter_ingest_html(
             status_code=400, detail=f"Invalid email_to: {item.email_to}"
         )
 
-    added = mcp_provider.ingest_html(background_tasks, item)
+    added = await mcp_provider.ingest_html(item)
     if added == False:
         raise HTTPException(status_code=500)
 
@@ -361,6 +368,7 @@ async def newsletter_read(
     query: ArticleReadQuery,
     token: str = Depends(oauth2_scheme),
 ):
+    print(f"{_thread_id()} POST /newsletter/article/read url={query.url}")
     token = access.bearer_is_valid(token)
     if not token:
         raise HTTPException(
