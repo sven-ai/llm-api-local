@@ -19,7 +19,7 @@ def normalize_url(url: str) -> str:
         normalized = f"https://{domain}"
 
     parsed = urlparse(normalized)
-    return urlunparse(("https", parsed.netloc, parsed.path, "", "", ""))
+    return urlunparse(("https", parsed.netloc, parsed.path.rstrip("/"), "", "", ""))
 
 
 # If dict has a value by key, then return it, otherwise insert new. Limit dict size to N items.
