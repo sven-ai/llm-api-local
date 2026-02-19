@@ -1,5 +1,6 @@
 # import urllib.robotparser
 import asyncio
+import threading
 from typing import Optional
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
@@ -13,6 +14,27 @@ from pydantic import BaseModel
 class FetchResult(BaseModel):
     html: str
     final_url: str
+
+
+class _FetchInstance:
+    def __init__(self, user_agent: str, max_concurrent: int):
+        self.user_agent = user_agent
+        self.max_concurrent = max_concurrent
+        self._playwright = None
+        self._browser = None
+        self._request_count = 0
+        self._max_requests_before_restart = 30
+        self._lock = asyncio.Lock()
+        self._semaphore = asyncio.Semaphore(max_concurrent)
+
+
+_thread_local = threading.local()
+
+
+def _get_instance(user_agent: str, max_concurrent: int) -> _FetchInstance:
+    if not hasattr(_thread_local, "fetch_instance"):
+        _thread_local.fetch_instance = _FetchInstance(user_agent, max_concurrent)
+    return _thread_local.fetch_instance
 
 
 def strip_tracking_params(url: str) -> str:
@@ -59,25 +81,22 @@ class Fetch:
         user_agent: str = "SvenBrowser/1.0 (anton@devbrain.io)",
         max_concurrent: int = 10,
     ):
-        self.user_agent = user_agent
-        self.max_concurrent = max_concurrent
-        self._playwright = None
-        self._browser = None
-        self._request_count = 0
-        self._max_requests_before_restart = 30
-        self._lock = asyncio.Lock()
-        self._semaphore = asyncio.Semaphore(max_concurrent)
+        self._user_agent = user_agent
+        self._max_concurrent = max_concurrent
+
+    def _instance(self) -> _FetchInstance:
+        return _get_instance(self._user_agent, self._max_concurrent)
 
     async def _ensure_browser(self):
-        # Try to acquire lock, recreate if event loop mismatch
+        inst = self._instance()
         try:
-            async with self._lock:
-                if self._request_count >= self._max_requests_before_restart:
+            async with inst._lock:
+                if inst._request_count >= inst._max_requests_before_restart:
                     await self._restart_browser()
 
-                if self._browser is None:
-                    self._playwright = await async_playwright().start()
-                    self._browser = await self._playwright.chromium.launch(
+                if inst._browser is None:
+                    inst._playwright = await async_playwright().start()
+                    inst._browser = await inst._playwright.chromium.launch(
                         headless=True,
                         args=[
                             "--no-sandbox",
@@ -87,16 +106,18 @@ class Fetch:
                     )
         except RuntimeError as e:
             if "bound to a different event loop" in str(e):
-                print("Event loop changed, recreating lock and semaphore...")
-                self._lock = asyncio.Lock()
-                self._semaphore = asyncio.Semaphore(self.max_concurrent)
-                async with self._lock:
-                    if self._request_count >= self._max_requests_before_restart:
+                print("Event loop changed, recreating instance...")
+                _thread_local.fetch_instance = _FetchInstance(
+                    self._user_agent, self._max_concurrent
+                )
+                inst = self._instance()
+                async with inst._lock:
+                    if inst._request_count >= inst._max_requests_before_restart:
                         await self._restart_browser()
 
-                    if self._browser is None:
-                        self._playwright = await async_playwright().start()
-                        self._browser = await self._playwright.chromium.launch(
+                    if inst._browser is None:
+                        inst._playwright = await async_playwright().start()
+                        inst._browser = await inst._playwright.chromium.launch(
                             headless=True,
                             args=[
                                 "--no-sandbox",
@@ -108,27 +129,29 @@ class Fetch:
                 raise
 
     async def _restart_browser(self):
+        inst = self._instance()
         print(
-            f"🔄 Restarting browser after {self._request_count} requests for memory cleanup..."
+            f"🔄 Restarting browser after {inst._request_count} requests for memory cleanup..."
         )
 
-        if self._browser:
-            await self._browser.close()
-            self._browser = None
-        if self._playwright:
-            await self._playwright.stop()
-            self._playwright = None
+        if inst._browser:
+            await inst._browser.close()
+            inst._browser = None
+        if inst._playwright:
+            await inst._playwright.stop()
+            inst._playwright = None
 
-        self._request_count = 0
+        inst._request_count = 0
         print("✅ Browser restart complete")
 
     async def close(self):
-        if self._browser:
-            await self._browser.close()
-            self._browser = None
-        if self._playwright:
-            await self._playwright.stop()
-            self._playwright = None
+        inst = self._instance()
+        if inst._browser:
+            await inst._browser.close()
+            inst._browser = None
+        if inst._playwright:
+            await inst._playwright.stop()
+            inst._playwright = None
 
     async def __aenter__(self):
         return self
@@ -141,18 +164,19 @@ class Fetch:
         Checks the domain's robots.txt to see if the URL is allowed for the configured user agent.
         Returns True if allowed, False otherwise (including if robots.txt is inaccessible).
         """
+        inst = self._instance()
         try:
             parser = robots.RobotsParser.from_uri(url)
-            result = parser.can_fetch(self.user_agent, url)
+            result = parser.can_fetch(inst.user_agent, url)
 
             if result:
                 print(
-                    f"'{self.user_agent}' is ALLOWED to fetch '{url}' according to robots.txt."
+                    f"'{inst.user_agent}' is ALLOWED to fetch '{url}' according to robots.txt."
                 )
                 return True
             else:
                 print(
-                    f"'{self.user_agent}' is DISALLOWED from fetching '{url}' by robots.txt."
+                    f"'{inst.user_agent}' is DISALLOWED from fetching '{url}' by robots.txt."
                 )
                 return False
 
@@ -165,27 +189,29 @@ class Fetch:
         await self._ensure_browser()
 
         # Safety check: ensure browser is initialized
-        if self._browser is None:
+        inst = self._instance()
+        if inst._browser is None:
             print("Browser is None after _ensure_browser(), retrying initialization...")
             await self._ensure_browser()
-            if self._browser is None:
+            inst = self._instance()
+            if inst._browser is None:
                 print("Failed to initialize browser")
                 return None
 
-        self._request_count += 1
+        inst._request_count += 1
 
-        async with self._semaphore:
+        async with inst._semaphore:
             context = None
             page = None
             try:
-                context = await self._browser.new_context(
-                    user_agent=self.user_agent,
+                context = await inst._browser.new_context(
+                    user_agent=inst.user_agent,
                     viewport={"width": 1440, "height": 900},
                 )
                 page = await context.new_page()
 
                 print(
-                    f"Navigating to {url} with Playwright... (req #{self._request_count})"
+                    f"Navigating to {url} with Playwright... (req #{inst._request_count})"
                 )
 
                 await page.add_init_script("""
