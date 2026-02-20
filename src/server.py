@@ -1,5 +1,4 @@
 import asyncio
-import concurrent.futures
 import json
 import threading
 import time
@@ -33,15 +32,10 @@ db_3designs_search_query = "db_3designs_search_query"
 db_3designs_search_tags = "db_3designs_search_tags"
 db_3designs_search_ts = "db_3designs_search_ts"
 db_3designs_search_rescount = "db_3designs_search_rescount"
-#
-db_newsletters_read_url = "db_newsletters_read_url"
-db_newsletters_read_ts = "db_newsletters_read_ts"
-db_newsletters_read_status = "db_newsletters_read_status"
 
 rerank = load_module("rerank.yml")
 access = load_module("access.yml")
 neural_search = load_module("search.yml")
-web_fetch = load_module("fetch.yml")
 blacklist = load_module("blacklist.yml")
 from mcp_shared import *
 
@@ -67,13 +61,6 @@ app = FastAPI()
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 collections = LimitedDict(max_size=100)
-processing_urls = set()
-
-# Thread pool executor for background tasks
-executor = concurrent.futures.ThreadPoolExecutor(
-    max_workers=10,
-    thread_name_prefix="server_background",
-)
 
 
 empty_search_results = {
@@ -294,75 +281,6 @@ class ArticleReadQuery(BaseModel):
     url: str
 
 
-async def background_fetch_and_process_article(
-    url: str,
-    stats_req_id: str,
-):
-    print("background_fetch_and_process_article")
-    try:
-        processing_urls.add(url)
-
-        stats_status = kvdb_get_collection(db_newsletters_read_status)
-        cache = kvdb_get_collection(db_newsletters_cache_markdown)
-        raw_cache = kvdb_get_collection(db_newsletters_cache_raw_html)
-
-        cached_raw = raw_cache.get(url)
-        if cached_raw:
-            cached_data = json.loads(cached_raw)
-            raw_html = cached_data["html"]
-            html_size = len(raw_html.encode("utf-8"))
-
-            if html_size < 1000:
-                print(f"Clearing bad cached HTML ({html_size} < 1000 bytes)")
-                raw_cache.delete(url)
-                fetch_result = await web_fetch.fetch(url)
-                if not fetch_result:
-                    stats_status.set(stats_req_id, "1")
-                    return
-                raw_html = fetch_result.html
-            else:
-                print("Using cached raw HTML for LLM processing.")
-        else:
-            print("Fetching raw HTML with playwright.")
-            fetch_result = await web_fetch.fetch(url)
-            if not fetch_result:
-                stats_status.set(stats_req_id, "1")
-                return
-            raw_html = fetch_result.html
-
-        html_size = len(raw_html.encode("utf-8"))
-        if html_size < 1000:
-            stats_status.set(stats_req_id, "1")
-            return
-
-        parsed_html = await mcp_provider.read(raw_html)
-
-        if parsed_html and len(parsed_html) >= 500:
-            cache.set(url, parsed_html)
-            stats_status.set(stats_req_id, "0")
-        else:
-            print(
-                f"⏭️  Not caching - markdown too short ({len(parsed_html) if parsed_html else 0} < 500 chars)"
-            )
-            stats_status.set(stats_req_id, "1")
-
-    finally:
-        processing_urls.discard(url)
-
-
-def _fetch_and_process_sync(url: str, stats_req_id: str):
-    """Synchronous wrapper for async background_fetch_and_process_article"""
-    try:
-        # print("_fetch_and_process_sync START")
-        asyncio.run(background_fetch_and_process_article(url, stats_req_id))
-        # print("_fetch_and_process_sync DONE")
-    except Exception as e:
-        print(f"_fetch_and_process_sync ERROR: {e}")
-        import traceback
-
-        traceback.print_exc()
-
-
 @app.post("/newsletter/article/read")
 async def newsletter_read(
     query: ArticleReadQuery,
@@ -383,37 +301,17 @@ async def newsletter_read(
     if _is_url_blocked(url):
         raise HTTPException(status_code=403, detail="Domain is blocked.")
 
-    stats_req_id = str(uuid.uuid4())
-    stats_url = kvdb_get_collection(db_newsletters_read_url)
-    stats_url.set(stats_req_id, url)
-    stats_ts = kvdb_get_collection(db_newsletters_read_ts)
-    stats_ts.set(stats_req_id, current_datetime_for_sqlite())
-
     cache = kvdb_get_collection(db_newsletters_cache_markdown)
-    cached_parsed = cache.get(url)
-    if cached_parsed:
-        if len(cached_parsed) < 100:
-            print(f"Clearing bad cached markdown ({len(cached_parsed)} < 100 chars)")
+    cached_markdown = cache.get(url)
+    if cached_markdown:
+        if len(cached_markdown) < 100:
+            print(f"Clearing bad cached markdown ({len(cached_markdown)} < 100 chars)")
             cache.delete(url)
         else:
             print("Returning cached markdown.")
-            stats_status = kvdb_get_collection(db_newsletters_read_status)
-            stats_status.set(stats_req_id, "0")
-            return cached_parsed
+            return cached_markdown
 
-    if url in processing_urls:
-        print(f"Article already being processed: {url}")
-        raise HTTPException(
-            status_code=202,
-            detail="Article is being processed. Retry in a few moments.",
-        )
-
-    print(f"📖 [server] Starting article processing: {url}")
-    executor.submit(
-        _fetch_and_process_sync,
-        url,
-        stats_req_id,
-    )
+    await mcp_provider.article_read(url)
 
     raise HTTPException(
         status_code=202,
