@@ -2,8 +2,6 @@ import sqlite3
 
 from utils import *
 
-# Stores raw fetched HTML for articles. Key: URL, Value: JSON with "html" and "date"
-db_newsletters_cache_raw_html = "newsletters_cache_raw_html"
 # Stores processed markdown for articles. Key: URL, Value: markdown string
 db_newsletters_cache_markdown = "newsletters_cache_markdown"
 # Stores incoming newsletter emails. Key: timestamp_email, Value: JSON with "html", "email_to", "date"

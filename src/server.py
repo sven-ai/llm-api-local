@@ -37,6 +37,7 @@ rerank = load_module("rerank.yml")
 access = load_module("access.yml")
 neural_search = load_module("search.yml")
 blacklist = load_module("blacklist.yml")
+web_fetch = load_module("fetch.yml")
 from mcp_shared import *
 
 mcp_provider = load_module("mcp.yml")
@@ -312,6 +313,17 @@ async def newsletter_read(
             return cached_markdown
 
     await mcp_provider.article_read(url)
+
+    await asyncio.sleep(5)
+    try:
+        fetch_result = await web_fetch.fetch(url)
+        if fetch_result and fetch_result.html and len(fetch_result.html) >= 1024:
+            print(
+                f"Returning raw HTML fallback for {url}: {len(fetch_result.html)} bytes"
+            )
+            return fetch_result.html
+    except Exception as e:
+        print(f"Failed to fetch HTML fallback for {url}: {e}")
 
     raise HTTPException(
         status_code=202,
