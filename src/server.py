@@ -314,7 +314,6 @@ async def newsletter_read(
 
     await mcp_provider.article_read(url)
 
-    await asyncio.sleep(5)
     try:
         html = await fetch_and_strip_html(url)
         if html:
