@@ -1,3 +1,5 @@
+import base64
+import json
 import os
 import random
 from typing import Optional
@@ -21,7 +23,7 @@ class Fetch:
     The RCWwwApiApp uses SwiftHeadlessWebKit (WKZombie) for Playwright-like fetching.
 
     The /fetch endpoint returns:
-    - 200: HTML content (cached or newly fetched)
+    - 200: JSON with {"data": <base64-encoded-html>, "final_url": <redirect-url>}
     - 204: Fetch in progress (first request, not cached)
     - 422: Fetch failed (raises FetchFailedError)
     """
@@ -79,8 +81,13 @@ class Fetch:
                     status = response.status
 
                     if status == 200:
-                        html = await response.text()
-                        return FetchResult(html=html, final_url=url)
+                        data = await response.json()
+                        html_b64 = data.get("data")
+                        final_url = data.get("final_url", url)
+                        if not html_b64:
+                            raise FetchFailedError(f"Fetch missing data field: {url}")
+                        html = base64.b64decode(html_b64).decode("utf-8")
+                        return FetchResult(html=html, final_url=final_url)
                     elif status == 204:
                         return None
                     elif status == 422:
