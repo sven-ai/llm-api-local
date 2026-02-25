@@ -302,18 +302,6 @@ async def newsletter_read(
     if _is_url_blocked(url):
         raise HTTPException(status_code=403, detail="Domain is blocked.")
 
-    cache = kvdb_get_collection(db_newsletters_cache_markdown)
-    cached_markdown = cache.get(url)
-    if cached_markdown:
-        if len(cached_markdown) < 100:
-            print(f"Clearing bad cached markdown ({len(cached_markdown)} < 100 chars)")
-            cache.delete(url)
-        else:
-            print("Returning cached markdown.")
-            return cached_markdown
-
-    await mcp_provider.article_read(url)
-
     try:
         html = await fetch_and_strip_html(url)
         if html:
