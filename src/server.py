@@ -299,8 +299,8 @@ async def newsletter_read(
     if not url:
         raise HTTPException(status_code=500, detail="Cmon bro")
 
-    if _is_url_blocked(url):
-        raise HTTPException(status_code=403, detail="Domain is blocked.")
+    # if _is_url_blocked(url):
+    #     raise HTTPException(status_code=403, detail="Domain is blocked.")
 
     await mcp_provider.article_read(url)
 
