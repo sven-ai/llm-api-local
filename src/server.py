@@ -302,6 +302,8 @@ async def newsletter_read(
     if _is_url_blocked(url):
         raise HTTPException(status_code=403, detail="Domain is blocked.")
 
+    await mcp_provider.article_read(url)
+
     try:
         html = await fetch_and_strip_html(url)
         if html:
