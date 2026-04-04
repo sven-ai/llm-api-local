@@ -1,12 +1,12 @@
-chromadb
-pydantic
-anthropic
+chromadb<2
+pydantic>=2,<3
+anthropic<1
 sentence-transformers
 transformers
 gunicorn
 # gevent
 uvicorn-worker
-fastapi
+fastapi<1
 fastmcp
 # fastmcp==2.3.1 # 2.3.2 deprecates SSE
 robotspy

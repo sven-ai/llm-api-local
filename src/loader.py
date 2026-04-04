@@ -51,6 +51,7 @@ def load_module(yml_path: str):
         return _Module(yml_path)._load_module()
     except Exception as e:
         print(f"Failed to load module from yml: {yml_path}. Exc: {str(e)}")
+        raise
 
 
 def load_config(yml_path: str):
