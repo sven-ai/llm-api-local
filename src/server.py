@@ -41,7 +41,6 @@ from mcp_shared import *
 
 mcp_provider = load_module("mcp.yml")
 from mcp_cloud import fetch_and_strip_html
-from ocagent_client import _get_reextract_stats, _get_stats
 status_renderer = load_module("status_web.yml")
 
 _db_models = DbModels()
@@ -858,6 +857,8 @@ dummy_html_200 = """
 
 @app.get("/status")
 async def status_page(view: str = "home"):
+    from ocagent_client import _get_reextract_stats, _get_stats
+
     if view == "reconcile":
         data = {
             "view": "reconcile",

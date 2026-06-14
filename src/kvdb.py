@@ -12,6 +12,8 @@ db_domain_bad_counts = "domain_bad_counts"
 db_fetch_metrics = "fetch_metrics"
 # Stores ocagent request IDs associated with article URLs. Key: URL, Value: req_id
 db_ocagent_req_ids = "ocagent_req_ids"
+# Stores reconcile failure counts per URL. Key: URL, Value: count as string
+db_reconcile_fail_counts = "reconcile_fail_counts"
 
 _connection = sqlite3.connect(
     "/data/kvs.db",
