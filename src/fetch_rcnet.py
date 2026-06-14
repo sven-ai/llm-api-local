@@ -35,7 +35,11 @@ class Fetch:
             "OCAGENT_TOKEN environment variable must be a valid non-empty string"
         )
 
-    _ZONES = ["eu", "us"]
+    _ZONES = [
+        # "eu",
+        # "us",
+        "va"
+    ]
     _current_zone_index = 0
 
     def __init__(self):

@@ -10,6 +10,8 @@ db_newsletters_inbox_html = "newsletters_inbox_html"
 db_domain_bad_counts = "domain_bad_counts"
 # Stores fetch metrics (playwright vs simple). Key: engine_status, Value: count
 db_fetch_metrics = "fetch_metrics"
+# Stores ocagent request IDs associated with article URLs. Key: URL, Value: req_id
+db_ocagent_req_ids = "ocagent_req_ids"
 
 _connection = sqlite3.connect(
     "/data/kvs.db",
@@ -86,6 +88,16 @@ class KVCollection:
                 f"DELETE FROM {self.collection} WHERE key = ?", [key]
             )
             _connection.commit()
+
+    def keys(self) -> list[str]:
+        with _connection:
+            cursor = _connection.cursor()
+
+            rows = cursor.execute(
+                f"SELECT key FROM {self.collection}"
+            ).fetchall()
+
+            return [row[0] for row in rows]
 
 
 def kvdb_get_collection(

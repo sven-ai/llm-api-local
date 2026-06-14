@@ -41,6 +41,8 @@ from mcp_shared import *
 
 mcp_provider = load_module("mcp.yml")
 from mcp_cloud import fetch_and_strip_html
+from status_web import render_status_page
+from ocagent_client import _get_reextract_stats, _get_stats
 
 _db_models = DbModels()
 
@@ -852,6 +854,47 @@ dummy_html_200 = """
     </body>
 </html>
 """
+
+
+@app.get("/status")
+async def status_page(view: str = "home"):
+    if view == "reconcile":
+        data = {
+            "view": "reconcile",
+            "reconcile": mcp_provider.reconcile_status(),
+            "reextract_stats": _get_reextract_stats(),
+        }
+    elif view == "stats":
+        data = {
+            "view": "stats",
+            "general": mcp_provider.general_status(),
+            "ocagent": _get_stats(),
+            "reextract_stats": _get_reextract_stats(),
+        }
+    else:
+        data = {
+            "view": "home",
+            "general": mcp_provider.general_status(),
+            "reconcile": mcp_provider.reconcile_status(),
+        }
+
+    html = render_status_page(data)
+    return HTMLResponse(content=html, status_code=200)
+
+
+@app.get("/reconcile")
+async def reconcile_redirect():
+    from fastapi.responses import RedirectResponse
+
+    return RedirectResponse(url="/status?view=reconcile", status_code=301)
+
+
+@app.post("/reconcile/trigger")
+async def reconcile_trigger():
+    await mcp_provider.reconcile_trigger_batch(100)
+    from fastapi.responses import RedirectResponse
+
+    return RedirectResponse(url="/status?view=reconcile", status_code=303)
 
 
 @app.get("/")
