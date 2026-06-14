@@ -41,8 +41,8 @@ from mcp_shared import *
 
 mcp_provider = load_module("mcp.yml")
 from mcp_cloud import fetch_and_strip_html
-from status_web import render_status_page
 from ocagent_client import _get_reextract_stats, _get_stats
+status_renderer = load_module("status_web.yml")
 
 _db_models = DbModels()
 
@@ -878,7 +878,7 @@ async def status_page(view: str = "home"):
             "reconcile": mcp_provider.reconcile_status(),
         }
 
-    html = render_status_page(data)
+    html = status_renderer.render_status_page(data)
     return HTMLResponse(content=html, status_code=200)
 
 
